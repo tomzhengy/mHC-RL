@@ -1,0 +1,69 @@
+[project]
+name = "mhc-gsm8k"
+version = "0.1.0"
+description = "Multi-head controller for GSM8K"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Core
+    "gymnasium>=0.29.0",
+    "torch>=2.2.0",
+    "numpy>=1.26.0",
+
+    # HF stack
+    "accelerate>=0.30.0",
+    "transformers>=4.44.0",
+    "datasets>=2.20.0",
+    "tokenizers>=0.19.0",
+    "safetensors>=0.4.0",
+
+    # RL
+    "scipy>=1.11.0",
+
+    # Logging / UX
+    "wandb>=0.17.0",
+    "tqdm>=4.66.0",
+    "rich>=13.7.0",
+
+    # Eval
+    "lm-eval>=0.4.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["routing", "controller", "envs", "train", "configs", "scripts"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.12.0",
+    "ruff>=0.1.14",
+    "ipython>=8.18.0",
+]
+
+# Optional groups you can install with:
+#   uv pip install -r <...>  or  pip install ".[perf]" etc (depending on your installer)
+perf = [
+    "vllm>=0.5.0",
+]
+
+scale = [
+    "deepspeed>=0.14.0",
+]
+
+obs = [
+    # Keep these optional; use Judgment’s official package name once you confirm it.
+    "opentelemetry-api>=1.25.0",
+    "opentelemetry-sdk>=1.25.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py312']
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
