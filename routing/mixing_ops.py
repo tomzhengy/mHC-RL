@@ -1,6 +1,6 @@
 """
-Mixing matrix operations for multi-stream residual connections.
-
+Mxing matrix operations for multi-stream residual connections.
+i
 Provides both row-stochastic (MVP) and doubly-stochastic (Sinkhorn) 
 mixing matrices for stream interpolation.
 """
