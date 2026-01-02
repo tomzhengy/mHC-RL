@@ -25,7 +25,7 @@ def device():
 @pytest.fixture(scope="module")
 def model_name():
     """Model to use for testing. Override with smaller model if needed."""
-    return "Qwen/Qwen2-0.5B-Instruct"
+    return "Qwen/Qwen3-4B-Instruct"
 
 
 @pytest.fixture(scope="module")
