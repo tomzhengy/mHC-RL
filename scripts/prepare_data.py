@@ -1,12 +1,3 @@
-#!/usr/bin/env python3
-"""
-Download and prepare GSM8K dataset for RL training.
-
-Usage:
-    python scripts/prepare_data.py
-    python scripts/prepare_data.py --output_dir data/
-"""
-
 import argparse
 import json
 import re
@@ -17,12 +8,6 @@ from tqdm import tqdm
 
 
 def extract_final_answer(answer_text: str) -> str | None:
-    """
-    Extract the final numeric answer from GSM8K answer text.
-    
-    GSM8K answers end with "#### <number>" format.
-    Returns the number as a string (to preserve formatting like negative signs).
-    """
     match = re.search(r"####\s*(-?[\d,]+\.?\d*)", answer_text)
     if match:
         # Remove commas from numbers like "1,234"
@@ -31,11 +16,7 @@ def extract_final_answer(answer_text: str) -> str | None:
 
 
 def prepare_gsm8k(output_dir: Path, include_svamp: bool = False) -> dict:
-    """
-    Download and prepare GSM8K (and optionally SVAMP for OOD eval).
-    
-    Returns stats about the prepared data.
-    """
+
     output_dir.mkdir(parents=True, exist_ok=True)
     stats = {}
     
