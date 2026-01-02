@@ -300,6 +300,14 @@ class GSM8KEnv(gym.Env):
         response_ids = output_ids[0, prompt_len:]
         response = self.tokenizer.decode(response_ids, skip_special_tokens=True)
         
+        # Check if generation was truncated (hit max_new_tokens without EOS)
+        num_generated = len(response_ids)
+        hit_eos = (
+            self.tokenizer.eos_token_id is not None 
+            and self.tokenizer.eos_token_id in response_ids.tolist()
+        )
+        response_truncated = (num_generated >= self.max_new_tokens) and not hit_eos
+        
         # Extract predicted answer
         predicted = self._extract_answer(response)
         expected = self._get_expected_answer(self._current_problem)
@@ -322,6 +330,8 @@ class GSM8KEnv(gym.Env):
             "gate_value": g,
             "generated_text": response[:500],  # Truncate for logging
             "cumulative_accuracy": self.correct_count / self.episode_count,
+            "response_truncated": response_truncated,  # Hit token budget without EOS
+            "num_tokens_generated": num_generated,
         }
         
         # Observation doesn't change (episode ends)
@@ -403,7 +413,7 @@ class GSM8KVecEnv:
         return np.stack(obs_list), info_list
     
     def step(self, actions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[dict]]:
-        """Step all environments."""
+        """Step all environments with CleanRL-style terminal info."""
         obs_list = []
         reward_list = []
         terminated_list = []
@@ -413,8 +423,17 @@ class GSM8KVecEnv:
         for env, action in zip(self.envs, actions):
             obs, reward, terminated, truncated, info = env.step(int(action))
             
-            # Auto-reset on termination
-            if terminated:
+            # Auto-reset on termination, but preserve terminal state for logging
+            if terminated or truncated:
+                # Store terminal observation/info BEFORE reset
+                # This lets CleanRL attribute reward to correct episode
+                info["terminal_observation"] = obs.copy()
+                info["terminal_info"] = {
+                    k: v for k, v in info.items() 
+                    if k not in ("terminal_observation", "terminal_info")
+                }
+                
+                # Now reset for next episode
                 obs, reset_info = env.reset()
                 info["reset_info"] = reset_info
             
