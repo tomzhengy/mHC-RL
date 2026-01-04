@@ -277,12 +277,16 @@ class GPT(nn.Module):
     def setup_optimizers(self, unembedding_lr=0.004, embedding_lr=0.2, matrix_lr=0.02, weight_decay=0.0):
         model_dim = self.config.n_embd
         ddp, rank, local_rank, world_size = get_dist_info()
-        # Separate out all parameters into 3 groups (matrix, embedding, lm_head)
-        matrix_params = list(self.transformer.h.parameters())
+        # Separate out all parameters into groups
+        # Muon requires 2D+ tensors, so 1D params (like mHC gate, H_pre_base, H_post_base) go to AdamW
+        all_h_params = list(self.transformer.h.parameters())
+        matrix_params = [p for p in all_h_params if p.ndim >= 2]  # Muon: 2D+ only
+        low_dim_params = [p for p in all_h_params if p.ndim < 2]  # AdamW: 1D params
         embedding_params = list(self.transformer.wte.parameters())
-        # include stream_embed with embeddings if mHC is enabled
+        # include stream_embed and low-dim mHC params with embeddings
         if self.config.mhc_enabled and hasattr(self, 'stream_embed'):
             embedding_params = embedding_params + [self.stream_embed]
+        embedding_params = embedding_params + low_dim_params
         lm_head_params = list(self.lm_head.parameters())
         assert len(list(self.parameters())) == len(matrix_params) + len(embedding_params) + len(lm_head_params)
         # Create the AdamW optimizer for the embedding and lm_head
