@@ -27,11 +27,11 @@ from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, p
 def collect_mhc_metrics(model):
     """collect mHC-specific metrics for logging."""
     metrics = {}
-    
+
     # check if mHC is enabled
     if not hasattr(model, 'config') or not model.config.mhc_enabled:
         return metrics
-    
+
     # stream embedding stats
     if hasattr(model, 'stream_embed') and model.stream_embed is not None:
         se = model.stream_embed.data
@@ -45,7 +45,7 @@ def collect_mhc_metrics(model):
             n = se.shape[0]
             off_diag = sim_matrix[~torch.eye(n, dtype=bool, device=se.device)]
             metrics["mhc/stream_similarity"] = off_diag.mean().item()
-    
+
     # mHC parameter stats from blocks
     h_res_norms = []
     h_pre_norms = []
@@ -53,7 +53,7 @@ def collect_mhc_metrics(model):
     h_res_grads = []
     h_pre_grads = []
     h_post_grads = []
-    
+
     for i, block in enumerate(model.transformer.h):
         if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
             mhc = block.mhc_attn
@@ -66,7 +66,7 @@ def collect_mhc_metrics(model):
                 h_pre_grads.append(mhc.H_pre_base.grad.norm().item())
             if mhc.H_post_base.grad is not None:
                 h_post_grads.append(mhc.H_post_base.grad.norm().item())
-    
+
     if h_res_norms:
         metrics["mhc/H_res_norm_mean"] = sum(h_res_norms) / len(h_res_norms)
         metrics["mhc/H_pre_norm_mean"] = sum(h_pre_norms) / len(h_pre_norms)
@@ -77,34 +77,47 @@ def collect_mhc_metrics(model):
         metrics["mhc/H_pre_grad_mean"] = sum(h_pre_grads) / len(h_pre_grads)
     if h_post_grads:
         metrics["mhc/H_post_grad_mean"] = sum(h_post_grads) / len(h_post_grads)
-    
+
     # exploration schedule (first block's mhc_attn is representative)
     first_block = model.transformer.h[0]
     if hasattr(first_block, 'mhc_attn') and first_block.mhc_attn is not None:
         metrics["mhc/explore_prob"] = first_block.mhc_attn._current_explore_prob
         metrics["mhc/gate_value"] = first_block.mhc_attn.get_gate()
-    
-    # sinkhorn diagnostics (row/col errors for doubly-stochastic check)
-    # sample from first, middle, and last block
+
+    # sinkhorn diagnostics: verify doubly-stochastic property
+    # - "raw" = base matrix only (H_res_base through Sinkhorn)
+    # - "used" = actual H_res from forward pass (base + dynamic + gate interpolation)
     n_blocks = len(model.transformer.h)
     sample_indices = [0, n_blocks // 2, n_blocks - 1]
-    row_errs, col_errs, diag_means, offdiag_means = [], [], [], []
-    
+    row_errs_raw, col_errs_raw, diag_means, offdiag_means = [], [], [], []
+    row_errs_used, col_errs_used = [], []
+
     for idx in sample_indices:
         block = model.transformer.h[idx]
         if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
+            # raw diagnostics (base matrix only)
             diag = block.mhc_attn.get_sinkhorn_diagnostics()
-            row_errs.append(diag["row_err"])
-            col_errs.append(diag["col_err"])
+            row_errs_raw.append(diag["row_err"])
+            col_errs_raw.append(diag["col_err"])
             diag_means.append(diag["diag_mean"])
             offdiag_means.append(diag["offdiag_mean"])
-    
-    if row_errs:
-        metrics["mhc/sinkhorn_row_err"] = sum(row_errs) / len(row_errs)
-        metrics["mhc/sinkhorn_col_err"] = sum(col_errs) / len(col_errs)
+
+            # used diagnostics (from actual forward pass, if captured)
+            used_diag = block.mhc_attn.get_used_diagnostics()
+            if used_diag["row_err_used"] > 0 or used_diag["col_err_used"] > 0:
+                row_errs_used.append(used_diag["row_err_used"])
+                col_errs_used.append(used_diag["col_err_used"])
+
+    if row_errs_raw:
+        metrics["mhc/sinkhorn_row_err_raw"] = sum(row_errs_raw) / len(row_errs_raw)
+        metrics["mhc/sinkhorn_col_err_raw"] = sum(col_errs_raw) / len(col_errs_raw)
         metrics["mhc/H_res_diag_mean"] = sum(diag_means) / len(diag_means)
         metrics["mhc/H_res_offdiag_mean"] = sum(offdiag_means) / len(offdiag_means)
-    
+
+    if row_errs_used:
+        metrics["mhc/sinkhorn_row_err_used"] = sum(row_errs_used) / len(row_errs_used)
+        metrics["mhc/sinkhorn_col_err_used"] = sum(col_errs_used) / len(col_errs_used)
+
     return metrics
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
 from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
@@ -419,6 +432,12 @@ while True:
 
     # -------------------------------------------------------------------------
     # single training step
+    # enable mHC used diagnostics on logging steps (captures actual H_res during forward)
+    if mhc_enabled and step % 100 == 0:
+        for block in orig_model.transformer.h:
+            if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
+                block.mhc_attn.enable_used_diagnostics()
+
     # evaluate the gradient
     synchronize()
     t0 = time.time()

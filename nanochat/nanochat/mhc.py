@@ -112,6 +112,11 @@ class DynamicMHC(nn.Module):
         # g=1 (sigmoid(0)=0.5 by default, we init to make sigmoid(gate)≈1)
         # gate interpolates H_res between identity (g=0) and computed (g=1)
         self.gate = nn.Parameter(torch.tensor([5.0]))  # sigmoid(5) ≈ 0.993
+
+        # diagnostics: store errors from actual forward pass (updated in get_matrices)
+        self._last_used_row_err = 0.0
+        self._last_used_col_err = 0.0
+        self._log_used_diagnostics = False  # set True to capture on next forward
     
     def get_matrices(self, x: torch.Tensor):
 
@@ -161,7 +166,16 @@ class DynamicMHC(nn.Module):
         # identity matrix for interpolation
         I = torch.eye(n, device=H_res.device, dtype=H_res.dtype)
         H_res = (1.0 - g) * I + g * H_res
-        
+
+        # capture diagnostics from actual forward pass (when requested)
+        if self._log_used_diagnostics:
+            with torch.no_grad():
+                row_sums = H_res.sum(dim=-1)  # [B, T, n]
+                col_sums = H_res.sum(dim=-2)  # [B, T, n]
+                self._last_used_row_err = (row_sums - 1).abs().mean().item()
+                self._last_used_col_err = (col_sums - 1).abs().mean().item()
+            self._log_used_diagnostics = False  # reset flag
+
         return H_res, H_pre, H_post
     
     def forward(self, x: torch.Tensor, branch_fn) -> torch.Tensor:
@@ -239,6 +253,7 @@ class DynamicMHC(nn.Module):
         """
         Compute row/column errors for the current H_res_base after Sinkhorn.
         Call this periodically during training to verify doubly-stochastic property.
+        Returns errors for the "raw" base matrix (no dynamic adjustments).
         """
         n = self.num_streams
         # compute H_res from base (no dynamic adjustment, just base matrix)
@@ -247,17 +262,28 @@ class DynamicMHC(nn.Module):
             self.sinkhorn_iters,
             self.sinkhorn_tau
         )[0, 0]  # [n, n]
-        
+
         row_err = (H_res.sum(dim=-1) - 1).abs().mean().item()
         col_err = (H_res.sum(dim=-2) - 1).abs().mean().item()
-        
+
         return {
             "row_err": row_err,
             "col_err": col_err,
             "diag_mean": H_res.diag().mean().item(),
             "offdiag_mean": H_res[~torch.eye(n, dtype=bool, device=H_res.device)].mean().item(),
         }
-    
+
+    def enable_used_diagnostics(self):
+        """Call before forward pass to capture diagnostics on actual H_res."""
+        self._log_used_diagnostics = True
+
+    def get_used_diagnostics(self) -> dict:
+        """Get row/col errors from the last forward pass (after enable_used_diagnostics was called)."""
+        return {
+            "row_err_used": self._last_used_row_err,
+            "col_err_used": self._last_used_col_err,
+        }
+
     def extra_repr(self) -> str:
         return (
             f"dim={self.dim}, num_streams={self.num_streams}, "
