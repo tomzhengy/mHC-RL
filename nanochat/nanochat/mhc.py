@@ -50,6 +50,9 @@ class DynamicMHC(nn.Module):
         sinkhorn_iters: int = 20,
         sinkhorn_tau: float = 0.05,
         layer_idx: int = 0,
+        gate_noise: bool = True,
+        gate_exploration_prob: float = 0.2,
+        gate_noise_scale: float = 0.3,
     ):
 
         super().__init__()
@@ -58,6 +61,11 @@ class DynamicMHC(nn.Module):
         self.sinkhorn_iters = sinkhorn_iters
         self.sinkhorn_tau = sinkhorn_tau
         self.layer_idx = layer_idx
+        
+        # gate noise settings (for RL robustness)
+        self.gate_noise_during_training = gate_noise
+        self.gate_exploration_prob = gate_exploration_prob
+        self.gate_noise_scale = gate_noise_scale
         
         n = num_streams
         widened_dim = dim * n
@@ -102,9 +110,6 @@ class DynamicMHC(nn.Module):
         # g=1 (sigmoid(0)=0.5 by default, we init to make sigmoid(gate)≈1)
         # gate interpolates H_res between identity (g=0) and computed (g=1)
         self.gate = nn.Parameter(torch.tensor([5.0]))  # sigmoid(5) ≈ 0.993
-        
-        # flag for training-time gate noise (robustness for RL)
-        self.gate_noise_during_training = True
     
     def get_matrices(self, x: torch.Tensor):
 
@@ -138,11 +143,17 @@ class DynamicMHC(nn.Module):
         g = torch.sigmoid(self.gate)
         
         # during training, add noise to gate for robustness (for RL tuning)
+        # this ensures the model learns to work across all gate values
         if self.training and self.gate_noise_during_training:
-            # scale g by uniform noise in [0.8, 1.2]
-            noise = 0.8 + 0.4 * torch.rand(1, device=x.device, dtype=x.dtype)
-            g = g * noise
-            g = g.clamp(0.0, 1.0)  # ensure valid range
+            if torch.rand(1).item() < self.gate_exploration_prob:
+                # full exploration: sample random gate from [0, 1]
+                g = torch.rand(1, device=x.device, dtype=x.dtype)
+            else:
+                # local exploration: perturb learned gate by ±scale
+                lo = 1.0 - self.gate_noise_scale
+                hi = 1.0 + self.gate_noise_scale
+                noise = lo + (hi - lo) * torch.rand(1, device=x.device, dtype=x.dtype)
+                g = (g * noise).clamp(0.0, 1.0)
         
         # identity matrix for interpolation
         I = torch.eye(n, device=H_res.device, dtype=H_res.dtype)
