@@ -38,6 +38,8 @@ def sinkhorn_log(
         v = log_marginal - torch.logsumexp(Z + u.unsqueeze(-1), dim=-2)
     
     # convert back from log-space
+    # note: after even number of iterations, columns are exactly normalized, rows approximately
+    # the small row error (~0.2%) is acceptable for training stability
     return torch.exp(Z + u.unsqueeze(-1) + v.unsqueeze(-2))
 
 
@@ -147,14 +149,15 @@ class DynamicMHC(nn.Module):
         # this ensures the model learns to work across all gate values
         if self.training and self.gate_noise_during_training:
             if torch.rand(1).item() < self._current_explore_prob:
-                # full exploration: sample random gate from [0, 1]
-                g = torch.rand(1, device=x.device, dtype=x.dtype)
+                # full exploration: sample from [0.1, 0.9] to avoid extremes
+                # g=0 disables mHC entirely, g=1 fully commits - both are harsh
+                g = 0.1 + 0.8 * torch.rand(1, device=x.device, dtype=x.dtype)
             else:
                 # local exploration: perturb learned gate by ±scale
                 lo = 1.0 - self.gate_noise_scale
                 hi = 1.0 + self.gate_noise_scale
                 noise = lo + (hi - lo) * torch.rand(1, device=x.device, dtype=x.dtype)
-                g = (g * noise).clamp(0.0, 1.0)
+                g = (g * noise).clamp(0.1, 0.9)  # clamp to safe range
         
         # identity matrix for interpolation
         I = torch.eye(n, device=H_res.device, dtype=H_res.dtype)
