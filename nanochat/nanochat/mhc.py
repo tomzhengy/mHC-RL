@@ -64,8 +64,9 @@ class DynamicMHC(nn.Module):
         
         # gate noise settings (for RL robustness)
         self.gate_noise_during_training = gate_noise
-        self.gate_exploration_prob = gate_exploration_prob
+        self.gate_exploration_prob = gate_exploration_prob  # target exploration prob
         self.gate_noise_scale = gate_noise_scale
+        self._current_explore_prob = 0.02  # start with minimal exploration (warmup)
         
         n = num_streams
         widened_dim = dim * n
@@ -145,7 +146,7 @@ class DynamicMHC(nn.Module):
         # during training, add noise to gate for robustness (for RL tuning)
         # this ensures the model learns to work across all gate values
         if self.training and self.gate_noise_during_training:
-            if torch.rand(1).item() < self.gate_exploration_prob:
+            if torch.rand(1).item() < self._current_explore_prob:
                 # full exploration: sample random gate from [0, 1]
                 g = torch.rand(1, device=x.device, dtype=x.dtype)
             else:
@@ -208,6 +209,28 @@ class DynamicMHC(nn.Module):
     def get_gate(self) -> float:
         """Get current effective gate value in [0, 1]."""
         return torch.sigmoid(self.gate).item()
+    
+    def set_exploration_schedule(self, progress: float, warmup_frac: float = 0.1):
+        """
+        Update exploration probability based on training progress.
+        
+        Args:
+            progress: Training progress in [0, 1] (current_step / total_steps)
+            warmup_frac: Fraction of training to ramp up exploration (default: 10%)
+        
+        Schedule:
+            - progress < warmup_frac: linear ramp from 0.02 to target exploration
+            - progress >= warmup_frac: full target exploration
+        """
+        target_explore = self.gate_exploration_prob
+        min_explore = 0.02  # 2% exploration minimum during warmup
+        
+        if progress < warmup_frac:
+            # linear ramp: 0.02 -> target over warmup period
+            ramp = progress / warmup_frac
+            self._current_explore_prob = min_explore + ramp * (target_explore - min_explore)
+        else:
+            self._current_explore_prob = target_explore
     
     def extra_repr(self) -> str:
         return (

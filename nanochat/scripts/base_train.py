@@ -78,6 +78,12 @@ def collect_mhc_metrics(model):
     if h_post_grads:
         metrics["mhc/H_post_grad_mean"] = sum(h_post_grads) / len(h_post_grads)
     
+    # exploration schedule (first block's mhc_attn is representative)
+    first_block = model.transformer.h[0]
+    if hasattr(first_block, 'mhc_attn') and first_block.mhc_attn is not None:
+        metrics["mhc/explore_prob"] = first_block.mhc_attn._current_explore_prob
+        metrics["mhc/gate_value"] = first_block.mhc_attn.get_gate()
+    
     return metrics
 from nanochat.tokenizer import get_tokenizer, get_token_bytes
 from nanochat.checkpoint_manager import save_checkpoint, load_checkpoint
@@ -384,6 +390,11 @@ while True:
     # termination conditions (TODO: possibly also add loss explosions etc.)
     if last_step:
         break
+
+    # update mHC exploration schedule (warmup: low exploration early, ramp up)
+    if mhc_enabled:
+        progress = step / num_iterations
+        orig_model.update_mhc_exploration(progress, warmup_frac=0.1)
 
     # -------------------------------------------------------------------------
     # single training step

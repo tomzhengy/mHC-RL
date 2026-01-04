@@ -257,6 +257,23 @@ class GPT(nn.Module):
         num_flops_per_token = 6 * (nparams - nparams_embedding) + 12 * l * h * q * t
         return num_flops_per_token
 
+    def update_mhc_exploration(self, progress: float, warmup_frac: float = 0.1):
+        """
+        Update gate exploration schedule for all mHC modules based on training progress.
+        Call this each step during training.
+        
+        Args:
+            progress: Training progress in [0, 1] (current_step / total_steps)
+            warmup_frac: Fraction of training to ramp up exploration (default: 10%)
+        """
+        if not self.config.mhc_enabled:
+            return
+        for block in self.transformer.h:
+            if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
+                block.mhc_attn.set_exploration_schedule(progress, warmup_frac)
+            if hasattr(block, 'mhc_mlp') and block.mhc_mlp is not None:
+                block.mhc_mlp.set_exploration_schedule(progress, warmup_frac)
+
     def setup_optimizers(self, unembedding_lr=0.004, embedding_lr=0.2, matrix_lr=0.02, weight_decay=0.0):
         model_dim = self.config.n_embd
         ddp, rank, local_rank, world_size = get_dist_info()
