@@ -38,14 +38,14 @@ source .venv/bin/activate
 # huggingface login (token passed as env var HF_TOKEN)
 if [ -n "$HF_TOKEN" ]; then
     echo "Logging into HuggingFace..."
-    huggingface-cli login --token $HF_TOKEN
+    hf auth login --token $HF_TOKEN
 fi
 
 # download pre-trained tokenizer from HuggingFace
 echo "Downloading tokenizer from tomzhengy/nanochat-tokenizer..."
 TOKENIZER_DIR="$NANOCHAT_BASE_DIR/tokenizer"
 mkdir -p $TOKENIZER_DIR
-huggingface-cli download tomzhengy/nanochat-tokenizer --local-dir $TOKENIZER_DIR
+hf download tomzhengy/nanochat-tokenizer --local-dir $TOKENIZER_DIR
 
 # download 240 data shards (~24GB, enough for speedrun training)
 echo "Downloading 240 data shards (~24GB)..."
