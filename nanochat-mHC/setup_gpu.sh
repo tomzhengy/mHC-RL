@@ -9,7 +9,10 @@ mkdir -p $NANOCHAT_BASE_DIR
 
 # install uv
 echo "Installing uv..."
-command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+if ! command -v uv &> /dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    source "$HOME/.local/bin/env"
+fi
 export PATH="$HOME/.local/bin:$PATH"
 
 # create venv and sync dependencies
@@ -28,6 +31,9 @@ fi
 # build rustbpe tokenizer
 echo "Building rustbpe tokenizer..."
 uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
+
+# activate venv for remaining commands
+source .venv/bin/activate
 
 # huggingface login (token passed as env var HF_TOKEN)
 if [ -n "$HF_TOKEN" ]; then
