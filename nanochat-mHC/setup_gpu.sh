@@ -49,16 +49,11 @@ hf download tomzhengy/nanochat-tokenizer --local-dir $TOKENIZER_DIR
 
 # download 240 data shards (~24GB, enough for speedrun training)
 echo "Downloading 240 data shards (~24GB)..."
-python -m nanochat.dataset -n 240 &
-DOWNLOAD_PID=$!
+python -m nanochat.dataset -n 240
 
 echo ""
 echo "=== Setup Complete ==="
-echo "Data download running in background (PID: $DOWNLOAD_PID)"
 echo ""
-echo "To train now (with partial data):"
+echo "You can now start training:"
 echo "  source .venv/bin/activate"
 echo "  ./sanity_mhc.sh 300"
-echo ""
-echo "To check download progress:"
-echo "  ls -la $NANOCHAT_BASE_DIR/base_data/ | wc -l"
