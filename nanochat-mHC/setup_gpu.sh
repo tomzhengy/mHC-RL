@@ -3,8 +3,8 @@ set -e
 
 echo "=== nanochat-mHC GPU Setup ==="
 
-# set base dir for nanochat artifacts
-export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
+# set base dir for nanochat artifacts (use /workspace for more disk space on cloud GPUs)
+export NANOCHAT_BASE_DIR="/workspace/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
 # install uv
