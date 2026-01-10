@@ -3,6 +3,9 @@ set -e
 
 echo "=== nanochat-mHC GPU Setup ==="
 
+# install screen for background jobs
+apt update && apt install -y screen
+
 # set base dir for nanochat artifacts (use /workspace for more disk space on cloud GPUs)
 export NANOCHAT_BASE_DIR="/workspace/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
