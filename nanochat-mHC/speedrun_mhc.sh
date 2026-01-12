@@ -13,8 +13,6 @@
 
 # Default intermediate artifacts directory is in ~/.cache/nanochat
 export OMP_NUM_THREADS=1
-# disable torch.compile for mHC compatibility (Muon optimizer has @torch.compile internally)
-export TORCH_COMPILE_DISABLE=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
@@ -95,7 +93,6 @@ torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_train -- 
     --mhc_num_streams=4 \
     --mhc_sinkhorn_iters=50 \
     --mhc_sinkhorn_tau=0.1 \
-    --skip_compile=True \
     --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_loss
