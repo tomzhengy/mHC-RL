@@ -117,8 +117,9 @@ class DynamicMHC(nn.Module):
         self.register_buffer('_explore_prob', torch.tensor(0.02))
 
         # diagnostics: store errors from actual forward pass (updated in get_matrices)
-        self._last_used_row_err = 0.0
-        self._last_used_col_err = 0.0
+        # stored as tensors to avoid graph breaks from .item() during forward
+        self.register_buffer('_last_used_row_err', torch.tensor(0.0), persistent=False)
+        self.register_buffer('_last_used_col_err', torch.tensor(0.0), persistent=False)
         self._log_used_diagnostics = False  # set True to capture on next forward
 
     def _init_params(self):
@@ -190,12 +191,13 @@ class DynamicMHC(nn.Module):
         H_res = (1.0 - g) * I + g * H_res
 
         # capture diagnostics from actual forward pass (when requested)
+        # store as tensors to avoid graph breaks - .item() called at retrieval time
         if self._log_used_diagnostics:
             with torch.no_grad():
                 row_sums = H_res.sum(dim=-1)  # [B, T, n]
                 col_sums = H_res.sum(dim=-2)  # [B, T, n]
-                self._last_used_row_err = (row_sums - 1).abs().mean().item()
-                self._last_used_col_err = (col_sums - 1).abs().mean().item()
+                self._last_used_row_err.copy_((row_sums - 1).abs().mean())
+                self._last_used_col_err.copy_((col_sums - 1).abs().mean())
             self._log_used_diagnostics = False  # reset flag
 
         return H_res, H_pre, H_post
@@ -312,8 +314,8 @@ class DynamicMHC(nn.Module):
     def get_used_diagnostics(self) -> dict:
         """Get row/col errors from the last forward pass (after enable_used_diagnostics was called)."""
         return {
-            "row_err_used": self._last_used_row_err,
-            "col_err_used": self._last_used_col_err,
+            "row_err_used": self._last_used_row_err.item(),
+            "col_err_used": self._last_used_col_err.item(),
         }
 
     def extra_repr(self) -> str:
