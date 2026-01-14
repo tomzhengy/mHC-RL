@@ -49,7 +49,7 @@ python -m scripts.base_train \
     --mhc_sinkhorn_tau=0.1 \
     --device_batch_size=4 \
     --total_batch_size=32768 \
-    --eval_every=50 \
+    --eval_every=500 \
     --core_metric_every=-1 \
     --sample_every=100 \
     --save_every=-1 \
