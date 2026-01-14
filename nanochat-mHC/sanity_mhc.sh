@@ -52,7 +52,7 @@ python -m scripts.base_train \
     --eval_every=500 \
     --core_metric_every=-1 \
     --sample_every=100 \
-    --save_every=-1 \
+    --save_every=5000 \
     --run=$WANDB_RUN
 
 echo ""
