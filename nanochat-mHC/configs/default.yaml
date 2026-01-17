@@ -19,6 +19,7 @@ mhc_enabled: false # enable dynamic mHC
 mhc_num_streams: 4 # number of residual streams
 mhc_sinkhorn_iters: 50 # sinkhorn iterations
 mhc_sinkhorn_tau: 0.1 # sinkhorn temperature
+mhc_gate_noise: false # gate noise during training (disable for pretraining)
 
 # training horizon (first enabled option is used)
 num_iterations: -1 # explicit steps (-1 = disable)

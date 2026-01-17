@@ -18,6 +18,7 @@ mhc_enabled: true
 mhc_num_streams: 4
 mhc_sinkhorn_iters: 50
 mhc_sinkhorn_tau: 0.1
+mhc_gate_noise: false # disable for pretraining, enable later for RL
 
 # training
 num_iterations: 5000

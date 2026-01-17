@@ -143,6 +143,7 @@ defaults = dict(
     mhc_num_streams=4,
     mhc_sinkhorn_iters=50,
     mhc_sinkhorn_tau=0.1,
+    mhc_gate_noise=False,
     num_iterations=-1,
     target_flops=-1.0,
     target_param_data_ratio=20,
@@ -258,9 +259,10 @@ model_config_kwargs = dict(
     mhc_num_streams=mhc_num_streams,
     mhc_sinkhorn_iters=mhc_sinkhorn_iters,
     mhc_sinkhorn_tau=mhc_sinkhorn_tau,
+    mhc_gate_noise=mhc_gate_noise,
 )
 if mhc_enabled:
-    print0(f"mHC enabled: {mhc_num_streams} streams, {mhc_sinkhorn_iters} Sinkhorn iters, tau={mhc_sinkhorn_tau}")
+    print0(f"mHC enabled: {mhc_num_streams} streams, {mhc_sinkhorn_iters} Sinkhorn iters, tau={mhc_sinkhorn_tau}, gate_noise={mhc_gate_noise}")
 with torch.device("meta"):
     # All tensors are created as meta tensors (they have shape/dtype but no data)
     model_config = GPTConfig(**model_config_kwargs)

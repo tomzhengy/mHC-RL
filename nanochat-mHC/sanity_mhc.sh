@@ -1,6 +1,6 @@
 #!/bin/bash
-# Sanity run: Single-GPU mHC training for 200-500 steps
-# Purpose: Verify mHC integration before multi-GPU launch
+# Sanity run: Multi-GPU mHC training
+# Purpose: Verify mHC integration
 # Logs: row/col errors (raw + used) via wandb
 
 set -e
@@ -8,6 +8,7 @@ set -e
 # Configuration
 STEPS=${1:-5000}  # default 5000 steps, can override via CLI: ./sanity_mhc.sh 500
 DEPTH=${2:-12}   # smaller model for quick sanity check
+NGPUS=${NGPUS:-4}  # number of GPUs
 WANDB_RUN=${WANDB_RUN:-"mhc-sanity-$(date +%Y%m%d-%H%M%S)"}
 
 echo "======================================"
@@ -15,6 +16,9 @@ echo "mHC Sanity Run"
 echo "======================================"
 echo "Steps: $STEPS"
 echo "Depth: $DEPTH"
+echo "GPUs: $NGPUS"
+echo "Seed: ${SEED:-42}"
+echo "Gate noise: off"
 echo "WandB run: $WANDB_RUN"
 echo ""
 
@@ -28,27 +32,20 @@ if [ -z "$VIRTUAL_ENV" ]; then
     fi
 fi
 
-# Run single-GPU training with mHC enabled
-# Key flags:
-#   --mhc_enabled=True          Enable mHC
-#   --num_iterations=$STEPS     Short sanity run
-#   --eval_every=50             Frequent eval for sanity check
-#   --core_metric_every=-1      Skip expensive evals
-#   --save_every=-1             No checkpoints (sanity only)
-#   --device_batch_size=4       Conservative for single GPU
-
 echo "Starting training..."
 echo ""
 
-python -m scripts.base_train \
+torchrun --nproc_per_node=$NGPUS -m scripts.base_train -- \
     --depth=$DEPTH \
     --num_iterations=$STEPS \
+    --seed=${SEED:-42} \
     --mhc_enabled=True \
     --mhc_num_streams=4 \
     --mhc_sinkhorn_iters=50 \
     --mhc_sinkhorn_tau=0.1 \
-    --device_batch_size=4 \
-    --total_batch_size=32768 \
+    --mhc_gate_noise=False \
+    --device_batch_size=32 \
+    --total_batch_size=524288 \
     --eval_every=500 \
     --core_metric_every=-1 \
     --sample_every=100 \
