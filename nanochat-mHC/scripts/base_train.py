@@ -325,7 +325,12 @@ print0(f"Total training FLOPs estimate: {num_flops_per_token * total_tokens:e}")
 # -----------------------------------------------------------------------------
 # Initialize the Optimizer (Muon for Linear layers, AdamW for embedding and lm_head)
 optimizers = model.setup_optimizers(unembedding_lr=unembedding_lr, embedding_lr=embedding_lr, matrix_lr=matrix_lr, weight_decay=weight_decay)
-adamw_optimizer, muon_optimizer = optimizers
+# find muon optimizer (for momentum scheduling) - it's the one with 'momentum' in param_groups
+muon_optimizer = None
+for opt in optimizers:
+    if opt.param_groups and 'momentum' in opt.param_groups[0]:
+        muon_optimizer = opt
+        break
 
 if resuming:
     for opt, dat in zip(optimizers, optimizer_data):
@@ -491,9 +496,10 @@ while True:
     for opt in optimizers:
         for group in opt.param_groups:
             group["lr"] = group["initial_lr"] * lrm
-    muon_momentum = get_muon_momentum(step)
-    for group in muon_optimizer.param_groups:
-        group["momentum"] = muon_momentum
+    if muon_optimizer is not None:
+        muon_momentum = get_muon_momentum(step)
+        for group in muon_optimizer.param_groups:
+            group["momentum"] = muon_momentum
     for opt in optimizers:
         opt.step()
     model.zero_grad(set_to_none=True)
