@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 
+@torch.compiler.disable()
 def sinkhorn_log(
     logits: torch.Tensor,
     num_iters: int = 50,
@@ -68,7 +69,6 @@ class DynamicMHC(nn.Module):
         self.gate_noise_during_training = gate_noise
         self.gate_exploration_prob = gate_exploration_prob  # target exploration prob
         self.gate_noise_scale = gate_noise_scale
-        self._current_explore_prob = 0.02  # start with minimal exploration (warmup)
         
         n = num_streams
         widened_dim = dim * n
@@ -114,10 +114,14 @@ class DynamicMHC(nn.Module):
         # paper initializes γ=0.01 (near identity) for stable training
         self.gate = nn.Parameter(torch.tensor([-4.6]))  # sigmoid(-4.6) ≈ 0.01
 
+        # exploration probability as buffer (for torch.compile compatibility)
+        self.register_buffer('_explore_prob', torch.tensor(0.02))
+
         # diagnostics: store errors from actual forward pass (updated in get_matrices)
-        self._last_used_row_err = 0.0
-        self._last_used_col_err = 0.0
-        self._log_used_diagnostics = False  # set True to capture on next forward
+        # stored as tensors to avoid graph breaks from .item() during forward
+        # always computed (no conditional) for torch.compile compatibility
+        self.register_buffer('_last_used_row_err', torch.tensor(0.0), persistent=False)
+        self.register_buffer('_last_used_col_err', torch.tensor(0.0), persistent=False)
 
     def _init_params(self):
         """Re-initialize params after to_empty() wipes them."""
@@ -141,62 +145,62 @@ class DynamicMHC(nn.Module):
 
         B, T, _ = x.shape
         n = self.num_streams
-        
+
         # normalize input for stable matrix generation
         x_norm = self.norm(x)
-        
+
         # generate per-token adjustments to base matrices
         H_res_delta = self.proj_H_res(x_norm).view(B, T, n, n)
         H_pre_delta = self.proj_H_pre(x_norm)   # [B, T, n]
         H_post_delta = self.proj_H_post(x_norm) # [B, T, n]
-        
+
         # combine base + dynamic adjustments
         # broadcasting: base [n, n] + delta [B, T, n, n]
         H_res_logits = self.H_res_base + H_res_delta
         H_pre_logits = self.H_pre_base + H_pre_delta
         H_post_logits = self.H_post_base + H_post_delta
-        
+
         # apply constraints
         # H_res: doubly-stochastic via Sinkhorn-Knopp
         H_res = sinkhorn_log(H_res_logits, self.sinkhorn_iters, self.sinkhorn_tau)
-        
+
         # H_pre, H_post: softmax-normalized (rows sum to 1)
         H_pre = F.softmax(H_pre_logits, dim=-1)   # [B, T, n]
         H_post = F.softmax(H_post_logits, dim=-1) # [B, T, n]
-        
+
         # apply controllable gate: interpolate H_res with identity
         # H_res_gated = (1 - g) * I + g * H_res
         g = torch.sigmoid(self.gate)
-        
+
         # during training, add noise to gate for robustness (for RL tuning)
         # this ensures the model learns to work across all gate values
+        # uses torch.where for compile compatibility (no Python control flow)
         if self.training and self.gate_noise_during_training:
-            if torch.rand(1).item() < self._current_explore_prob:
-                # full exploration: sample from [0.1, 0.9] to avoid extremes
-                # g=0 disables mHC entirely, g=1 fully commits - both are harsh
-                g = 0.1 + 0.8 * torch.rand(1, device=x.device, dtype=x.dtype)
-            else:
-                # local exploration: perturb learned gate by ±scale
-                lo = 1.0 - self.gate_noise_scale
-                hi = 1.0 + self.gate_noise_scale
-                noise = lo + (hi - lo) * torch.rand(1, device=x.device, dtype=x.dtype)
-                g = (g * noise).clamp(0.1, 0.9)  # clamp to safe range
-        
+            # compute all potential values (compile-friendly: no branching)
+            explore_g = 0.1 + 0.8 * torch.rand(1, device=x.device, dtype=x.dtype)
+            lo = 1.0 - self.gate_noise_scale
+            hi = 1.0 + self.gate_noise_scale
+            noise = lo + (hi - lo) * torch.rand(1, device=x.device, dtype=x.dtype)
+            noisy_g = (g * noise).clamp(0.1, 0.9)
+
+            # select between explore and noisy based on random draw
+            rand_val = torch.rand(1, device=x.device, dtype=x.dtype)
+            g = torch.where(rand_val < self._explore_prob, explore_g, noisy_g)
+
         # identity matrix for interpolation
         I = torch.eye(n, device=H_res.device, dtype=H_res.dtype)
         H_res = (1.0 - g) * I + g * H_res
 
-        # capture diagnostics from actual forward pass (when requested)
-        if self._log_used_diagnostics:
-            with torch.no_grad():
-                row_sums = H_res.sum(dim=-1)  # [B, T, n]
-                col_sums = H_res.sum(dim=-2)  # [B, T, n]
-                self._last_used_row_err = (row_sums - 1).abs().mean().item()
-                self._last_used_col_err = (col_sums - 1).abs().mean().item()
-            self._log_used_diagnostics = False  # reset flag
+        # always compute diagnostics (no conditional for torch.compile compatibility)
+        # cost is negligible - just tensor sums
+        with torch.no_grad():
+            row_sums = H_res.sum(dim=-1)  # [B, T, n]
+            col_sums = H_res.sum(dim=-2)  # [B, T, n]
+            self._last_used_row_err.copy_((row_sums - 1).abs().mean())
+            self._last_used_col_err.copy_((col_sums - 1).abs().mean())
 
         return H_res, H_pre, H_post
-    
+
     def forward(self, x: torch.Tensor, branch_fn) -> torch.Tensor:
 
         B, T, nC = x.shape
@@ -256,24 +260,27 @@ class DynamicMHC(nn.Module):
     def set_exploration_schedule(self, progress: float, warmup_frac: float = 0.1):
         """
         Update exploration probability based on training progress.
-        
+
         Args:
             progress: Training progress in [0, 1] (current_step / total_steps)
             warmup_frac: Fraction of training to ramp up exploration (default: 10%)
-        
+
         Schedule:
             - progress < warmup_frac: linear ramp from 0.02 to target exploration
             - progress >= warmup_frac: full target exploration
         """
         target_explore = self.gate_exploration_prob
         min_explore = 0.02  # 2% exploration minimum during warmup
-        
+
         if progress < warmup_frac:
             # linear ramp: 0.02 -> target over warmup period
             ramp = progress / warmup_frac
-            self._current_explore_prob = min_explore + ramp * (target_explore - min_explore)
+            new_prob = min_explore + ramp * (target_explore - min_explore)
         else:
-            self._current_explore_prob = target_explore
+            new_prob = target_explore
+
+        # update buffer (in-place to preserve device/dtype)
+        self._explore_prob.fill_(new_prob)
     
     def get_sinkhorn_diagnostics(self) -> dict:
         """
@@ -299,15 +306,11 @@ class DynamicMHC(nn.Module):
             "offdiag_mean": H_res[~torch.eye(n, dtype=bool, device=H_res.device)].mean().item(),
         }
 
-    def enable_used_diagnostics(self):
-        """Call before forward pass to capture diagnostics on actual H_res."""
-        self._log_used_diagnostics = True
-
     def get_used_diagnostics(self) -> dict:
-        """Get row/col errors from the last forward pass (after enable_used_diagnostics was called)."""
+        """Get row/col errors from the last forward pass."""
         return {
-            "row_err_used": self._last_used_row_err,
-            "col_err_used": self._last_used_col_err,
+            "row_err_used": self._last_used_row_err.item(),
+            "col_err_used": self._last_used_col_err.item(),
         }
 
     def extra_repr(self) -> str:

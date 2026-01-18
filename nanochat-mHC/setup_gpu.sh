@@ -3,8 +3,11 @@ set -e
 
 echo "=== nanochat-mHC GPU Setup ==="
 
-# set base dir for nanochat artifacts
-export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
+# install screen for background jobs
+apt update && apt install -y screen
+
+# set base dir for nanochat artifacts (use /workspace for more disk space on cloud GPUs)
+export NANOCHAT_BASE_DIR="/workspace/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
 # install uv
@@ -42,10 +45,17 @@ if [ -n "$HF_TOKEN" ]; then
 fi
 
 # download pre-trained tokenizer from HuggingFace
+# use python snapshot_download instead of hf cli to avoid symlink issues
 echo "Downloading tokenizer from tomzhengy/nanochat-tokenizer..."
 TOKENIZER_DIR="$NANOCHAT_BASE_DIR/tokenizer"
 mkdir -p $TOKENIZER_DIR
-hf download tomzhengy/nanochat-tokenizer --local-dir $TOKENIZER_DIR
+python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('tomzhengy/nanochat-tokenizer', local_dir='$TOKENIZER_DIR')
+"
+# also copy to ~/.cache/nanochat for compatibility with default paths
+mkdir -p ~/.cache/nanochat/tokenizer
+cp -r $TOKENIZER_DIR/* ~/.cache/nanochat/tokenizer/ 2>/dev/null || true
 
 # download 240 data shards (~24GB, enough for speedrun training)
 echo "Downloading 240 data shards (~24GB)..."

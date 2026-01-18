@@ -12,6 +12,7 @@ python -m scripts.base_train --depth=4 --max_seq_len=512 --device_batch_size=1 -
 """
 
 import os
+import sys
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import time
 from contextlib import nullcontext
@@ -81,7 +82,7 @@ def collect_mhc_metrics(model):
     # exploration schedule (first block's mhc_attn is representative)
     first_block = model.transformer.h[0]
     if hasattr(first_block, 'mhc_attn') and first_block.mhc_attn is not None:
-        metrics["mhc/explore_prob"] = first_block.mhc_attn._current_explore_prob
+        metrics["mhc/explore_prob"] = first_block.mhc_attn._explore_prob.item()
         metrics["mhc/gate_value"] = first_block.mhc_attn.get_gate()
 
     # sinkhorn diagnostics: verify doubly-stochastic property
@@ -127,47 +128,82 @@ from scripts.base_eval import evaluate_model
 print_banner()
 
 # -----------------------------------------------------------------------------
-# User settings
-run = "dummy" # wandb run name default ("dummy" is special - we won't log to wandb)
-# Runtime
-device_type = "" # cuda|cpu|mps (empty => autodetect good device type default, in order: CUDA > MPS > CPU)
-skip_compile = False # skip torch.compile (useful for debugging or when compile takes too long with mHC)
-# Model architecture
-depth = 20 # the depth of the Transformer model to train, rest of the kwargs are derived
-max_seq_len = 2048 # max context length
-mhc_enabled = False # enable dynamic mHC (replaces residual connections)
-mhc_num_streams = 4 # expansion rate n (typically 4)
-mhc_sinkhorn_iters = 50 # Sinkhorn iterations for doubly-stochastic projection
-mhc_sinkhorn_tau = 0.1 # temperature (lower = sharper routing)
-# Training horizon. Only one of these 3 will be used, in this order of precedence.
-num_iterations = -1 # explicit number of steps of the optimization (-1 = disable)
-target_flops = -1.0 # calculate num_iterations to reach target_flops. Useful for scaling laws experiments (-1 = disable)
-target_param_data_ratio = 20 # calculate num_iterations to maintain fixed data:param ratio (Chinchilla=20) (-1 = disable)
-# Optimization
-device_batch_size = 32 # per-device batch size (set to not OOM)
-total_batch_size = 524288 # total desired batch size, in #tokens
-embedding_lr = 0.2 # learning rate for the embedding parameters (Adam)
-unembedding_lr = 0.004 # learning rate for the unembedding parameters (Adam)
-weight_decay = 0.0 # weight decay for the embedding/unembedding parameters (Adam)
-matrix_lr = 0.02 # learning rate for the matrix parameters (Muon)
-grad_clip = 1.0 # gradient clipping value (0.0 = disabled)
-warmup_ratio = 0.0 # ratio of iterations for LR warmup
-warmdown_ratio = 0.2 # ratio of iterations for LR warmdown
-final_lr_frac = 0.0 # final LR is this fraction of the initial LR
-resume_from_step = -1 # resume training from this step of the optimization (-1 = disable)
-# Evaluation
-eval_every = 250 # every how many steps to evaluate the model for val bpb
-eval_tokens = 20*524288 # number of tokens to evaluate val loss on
-core_metric_every = 2000 # every how many steps to evaluate the core metric (-1 = disable)
-core_metric_max_per_task = 500 # examples per task in estimating the core metric
-sample_every = 2000 # every how many steps to sample from the model
-save_every = -1 # every how many steps to save model checkpoints (-1 = disable, and save only at the end of the run)
-# Output
-model_tag = "" # optionally override the model tag for the output checkpoint directory name
-# now allow CLI to override the settings via the configurator lol
-config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
-exec(open(os.path.join('nanochat', 'configurator.py')).read()) # overrides from command line or config file
+# Load config from YAML file, then allow CLI overrides
+import yaml
+
+# default values (used if no config file specified)
+defaults = dict(
+    run="dummy",
+    seed=-1,
+    device_type="",
+    skip_compile=False,
+    depth=20,
+    max_seq_len=2048,
+    mhc_enabled=False,
+    mhc_num_streams=4,
+    mhc_sinkhorn_iters=50,
+    mhc_sinkhorn_tau=0.1,
+    mhc_gate_noise=False,
+    num_iterations=-1,
+    target_flops=-1.0,
+    target_param_data_ratio=20,
+    device_batch_size=32,
+    total_batch_size=524288,
+    embedding_lr=0.2,
+    unembedding_lr=0.004,
+    weight_decay=0.0,
+    matrix_lr=0.02,
+    grad_clip=1.0,
+    warmup_ratio=0.0,
+    warmdown_ratio=0.2,
+    final_lr_frac=0.0,
+    resume_from_step=-1,
+    eval_every=250,
+    eval_tokens=20*524288,
+    core_metric_every=2000,
+    core_metric_max_per_task=500,
+    sample_every=2000,
+    save_every=-1,
+    model_tag="",
+)
+
+# check for --config=path/to/config.yaml in CLI args
+config_file = None
+for arg in sys.argv[1:]:
+    if arg.startswith("--config="):
+        config_file = arg.split("=", 1)[1]
+        break
+
+# load from YAML if specified
+if config_file:
+    with open(config_file, "r") as f:
+        yaml_config = yaml.safe_load(f)
+    print(f"Loaded config from {config_file}")
+    # merge yaml into defaults
+    for k, v in yaml_config.items():
+        if k in defaults:
+            defaults[k] = v
+        else:
+            print(f"Warning: unknown config key '{k}' in {config_file}")
+
+# set all config values as globals
+for k, v in defaults.items():
+    globals()[k] = v
+
+# now allow CLI to override the settings via the configurator
+config_keys = list(defaults.keys())
+exec(open(os.path.join('nanochat', 'configurator.py')).read()) # overrides from command line
 user_config = {k: globals()[k] for k in config_keys} # will be useful for logging
+
+# set random seed for reproducibility
+if seed != -1:
+    import random
+    import numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    print(f"Random seed set to {seed}")
 # -----------------------------------------------------------------------------
 
 # Compute init
@@ -223,9 +259,10 @@ model_config_kwargs = dict(
     mhc_num_streams=mhc_num_streams,
     mhc_sinkhorn_iters=mhc_sinkhorn_iters,
     mhc_sinkhorn_tau=mhc_sinkhorn_tau,
+    mhc_gate_noise=mhc_gate_noise,
 )
 if mhc_enabled:
-    print0(f"mHC enabled: {mhc_num_streams} streams, {mhc_sinkhorn_iters} Sinkhorn iters, tau={mhc_sinkhorn_tau}")
+    print0(f"mHC enabled: {mhc_num_streams} streams, {mhc_sinkhorn_iters} Sinkhorn iters, tau={mhc_sinkhorn_tau}, gate_noise={mhc_gate_noise}")
 with torch.device("meta"):
     # All tensors are created as meta tensors (they have shape/dtype but no data)
     model_config = GPTConfig(**model_config_kwargs)
@@ -288,7 +325,12 @@ print0(f"Total training FLOPs estimate: {num_flops_per_token * total_tokens:e}")
 # -----------------------------------------------------------------------------
 # Initialize the Optimizer (Muon for Linear layers, AdamW for embedding and lm_head)
 optimizers = model.setup_optimizers(unembedding_lr=unembedding_lr, embedding_lr=embedding_lr, matrix_lr=matrix_lr, weight_decay=weight_decay)
-adamw_optimizer, muon_optimizer = optimizers
+# find muon optimizer (for momentum scheduling) - it's the one with 'momentum' in param_groups
+muon_optimizer = None
+for opt in optimizers:
+    if opt.param_groups and 'momentum' in opt.param_groups[0]:
+        muon_optimizer = opt
+        break
 
 if resuming:
     for opt, dat in zip(optimizers, optimizer_data):
@@ -434,12 +476,6 @@ while True:
 
     # -------------------------------------------------------------------------
     # single training step
-    # enable mHC used diagnostics on logging steps (captures actual H_res during forward)
-    if mhc_enabled and step % 20 == 0:
-        for block in orig_model.transformer.h:
-            if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
-                block.mhc_attn.enable_used_diagnostics()
-
     # evaluate the gradient
     synchronize()
     t0 = time.time()
@@ -460,9 +496,10 @@ while True:
     for opt in optimizers:
         for group in opt.param_groups:
             group["lr"] = group["initial_lr"] * lrm
-    muon_momentum = get_muon_momentum(step)
-    for group in muon_optimizer.param_groups:
-        group["momentum"] = muon_momentum
+    if muon_optimizer is not None:
+        muon_momentum = get_muon_momentum(step)
+        for group in muon_optimizer.param_groups:
+            group["momentum"] = muon_momentum
     for opt in optimizers:
         opt.step()
     model.zero_grad(set_to_none=True)

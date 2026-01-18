@@ -5,13 +5,14 @@ Episode structure:
 - reset(): Sample a GSM8K problem, return observation
 - step(action): Set routing gate g, generate answer, return reward
 
-Action space: Discrete(5) → g ∈ {0.0, 0.25, 0.5, 0.75, 1.0}
-Observation space: Box with prompt features (start minimal)
+Action space: Discrete(5) -> g in {0.0, 0.25, 0.5, 0.75, 1.0}
+Observation space: Box with 2 features (prompt_length, question_length)
 Reward: +1 for correct answer, 0 otherwise
 """
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,29 +21,32 @@ import numpy as np
 import torch
 from gymnasium import spaces
 
-from routing import MultiStreamDecoder, greedy_decode
+# add nanochat to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "nanochat-mHC"))
+from nanochat.gpt import GPT
+from nanochat.engine import Engine
 
 
 class GSM8KEnv(gym.Env):
     """
     Gymnasium environment for GSM8K math problems with RL-controlled routing.
-    
+
     Each episode is ONE math problem:
     1. reset() loads a problem
     2. step(action) generates an answer with routing gate g
     3. Reward based on exact match
-    
+
     This is a one-step environment (done=True after step).
     """
-    
+
     metadata = {"render_modes": ["human"]}
-    
+
     # Gate values corresponding to discrete actions
     GATE_VALUES = [0.0, 0.25, 0.5, 0.75, 1.0]
-    
+
     def __init__(
         self,
-        model: MultiStreamDecoder,
+        model: GPT,
         tokenizer,
         data_path: str = "data/gsm8k_train.jsonl",
         max_new_tokens: int = 256,
@@ -52,8 +56,8 @@ class GSM8KEnv(gym.Env):
     ):
         """
         Args:
-            model: MultiStreamDecoder wrapper around base LM
-            tokenizer: HuggingFace tokenizer
+            model: nanochat GPT model with mHC (DynamicMHC)
+            tokenizer: nanochat tokenizer (RustBPETokenizer)
             data_path: Path to GSM8K JSONL file
             max_new_tokens: Maximum tokens to generate per episode
             prompt_template: Template for formatting questions
@@ -61,37 +65,41 @@ class GSM8KEnv(gym.Env):
             device: Device for model inference
         """
         super().__init__()
-        
+
         self.model = model
         self.tokenizer = tokenizer
+        self.engine = Engine(model, tokenizer)
         self.max_new_tokens = max_new_tokens
         self.prompt_template = prompt_template
         self.device = device
-        
+
+        # sequence_len from model config for feature normalization
+        self.sequence_len = model.config.sequence_len
+
         # Load dataset
         self.data = self._load_data(data_path)
         if len(self.data) == 0:
             raise ValueError(f"No data loaded from {data_path}")
-        
+
         # Action space: 5 discrete gate values
         self.action_space = spaces.Discrete(len(self.GATE_VALUES))
-        
-        # Observation space (start minimal):
-        # - prompt_length: normalized token count (0-1 based on max 512)
-        # - (can add more features later: difficulty proxy, etc.)
+
+        # Observation space: 2 features
+        # - prompt_length: normalized by model.config.sequence_len
+        # - question_length: character count clamped to 1000
         self.observation_space = spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(1,),
+            shape=(2,),
             dtype=np.float32,
         )
-        
+
         # Episode state
         self._current_problem: Optional[dict] = None
         self._current_prompt: Optional[str] = None
-        self._current_inputs: Optional[dict] = None
+        self._current_tokens: Optional[list] = None
         self._rng = np.random.default_rng(seed)
-        
+
         # Statistics tracking
         self.episode_count = 0
         self.correct_count = 0
@@ -225,50 +233,51 @@ class GSM8KEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, Any]]:
         """
         Reset environment with a new GSM8K problem.
-        
+
         Returns:
-            observation: Array with prompt features
+            observation: Array with 2 features (prompt_length, question_length)
             info: Dict with problem details
         """
         if seed is not None:
             self._rng = np.random.default_rng(seed)
-        
+
         # Sample a random problem
         idx = self._rng.integers(0, len(self.data))
         self._current_problem = self.data[idx]
-        
+
         # Format prompt
         self._current_prompt = self.prompt_template.format(
             question=self._current_problem["question"]
         )
-        
-        # Tokenize
-        self._current_inputs = self.tokenizer(
-            self._current_prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=512,
-        ).to(self.device)
-        
-        # Compute observation (normalized prompt length)
-        prompt_length = self._current_inputs.input_ids.shape[1]
-        obs = np.array([prompt_length / 512.0], dtype=np.float32)
-        
+
+        # Tokenize using nanochat tokenizer (returns list of ints)
+        bos = self.tokenizer.get_bos_token_id()
+        self._current_tokens = self.tokenizer.encode(self._current_prompt, prepend=bos)
+
+        # Compute observation: 2 features
+        prompt_length = len(self._current_tokens)
+        question_length = len(self._current_problem["question"])
+        obs = np.array([
+            prompt_length / float(self.sequence_len),
+            min(question_length, 1000) / 1000.0,
+        ], dtype=np.float32)
+
         info = {
             "question": self._current_problem["question"],
             "expected_answer": self._get_expected_answer(self._current_problem),
             "prompt_length": prompt_length,
+            "question_length": question_length,
         }
-        
+
         return obs, info
     
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         """
         Execute one episode step (generate answer with given routing gate).
-        
+
         Args:
             action: Discrete action (0-4) mapped to gate value
-            
+
         Returns:
             observation: Same as reset (episode ends)
             reward: +1 for correct, 0 otherwise
@@ -278,70 +287,71 @@ class GSM8KEnv(gym.Env):
         """
         if self._current_problem is None:
             raise RuntimeError("Must call reset() before step()")
-        
+
         # Map action to gate value
         g = self.GATE_VALUES[action]
-        
-        # Generate answer
-        self.model.eval()
-        prompt_len = self._current_inputs.input_ids.shape[1]
-        
-        with torch.no_grad():
-            output_ids = greedy_decode(
-                self.model,
-                self._current_inputs.input_ids,
-                max_new_tokens=self.max_new_tokens,
-                g=g,
-                eos_token_id=self.tokenizer.eos_token_id,
-                attention_mask=self._current_inputs.attention_mask,
-            )
-        
-        # Decode only the newly generated tokens (slice by token index, not string)
-        response_ids = output_ids[0, prompt_len:]
-        response = self.tokenizer.decode(response_ids, skip_special_tokens=True)
-        
+
+        # Set mHC gate before generation
+        self.model.set_mhc_gate(g)
+
+        # Generate answer using nanochat Engine
+        prompt_len = len(self._current_tokens)
+        results, masks = self.engine.generate_batch(
+            self._current_tokens,
+            num_samples=1,
+            max_tokens=self.max_new_tokens,
+            temperature=0.0,  # greedy decoding
+        )
+
+        # results[0] contains prompt + generated tokens
+        # slice off the prompt to get just the response
+        response_ids = results[0][prompt_len:]
+        response = self.tokenizer.decode(response_ids)
+
         # Check if generation was truncated (hit max_new_tokens without EOS)
         num_generated = len(response_ids)
-        hit_eos = (
-            self.tokenizer.eos_token_id is not None 
-            and self.tokenizer.eos_token_id in response_ids.tolist()
-        )
+        assistant_end = self.tokenizer.encode_special("<|assistant_end|>")
+        bos = self.tokenizer.get_bos_token_id()
+        hit_eos = assistant_end in response_ids or bos in response_ids
         response_truncated = (num_generated >= self.max_new_tokens) and not hit_eos
-        
+
         # Extract predicted answer
         predicted = self._extract_answer(response)
         expected = self._get_expected_answer(self._current_problem)
-        
+
         # Compute reward (numeric match)
         correct = self._answers_match(predicted, expected)
         reward = 1.0 if correct else 0.0
-        
+
         # Update statistics
         self.episode_count += 1
         if correct:
             self.correct_count += 1
-        
+
         # Build info
+        question_length = len(self._current_problem["question"])
         info = {
             "question": self._current_problem["question"],
             "expected_answer": expected,
             "predicted_answer": predicted,
             "correct": correct,
             "gate_value": g,
-            "generated_text": response[:500],  # Truncate for logging
+            "generated_text": response[:500],  # truncate for logging
             "cumulative_accuracy": self.correct_count / self.episode_count,
-            "response_truncated": response_truncated,  # Hit token budget without EOS
+            "response_truncated": response_truncated,
             "num_tokens_generated": num_generated,
         }
-        
+
         # Observation doesn't change (episode ends)
-        prompt_length = self._current_inputs.input_ids.shape[1]
-        obs = np.array([prompt_length / 512.0], dtype=np.float32)
-        
+        obs = np.array([
+            prompt_len / float(self.sequence_len),
+            min(question_length, 1000) / 1000.0,
+        ], dtype=np.float32)
+
         # Episode always terminates after one step
         terminated = True
         truncated = False
-        
+
         return obs, reward, terminated, truncated, info
     
     def render(self) -> None:
@@ -372,13 +382,13 @@ class GSM8KEnv(gym.Env):
 class GSM8KVecEnv:
     """
     Vectorized wrapper for running multiple GSM8K environments in parallel.
-    
-    Useful for batched PPO rollouts.
+
+    Useful for batched REINFORCE rollouts.
     """
-    
+
     def __init__(
         self,
-        model: MultiStreamDecoder,
+        model: GPT,
         tokenizer,
         num_envs: int = 4,
         **env_kwargs,

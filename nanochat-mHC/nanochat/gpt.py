@@ -310,14 +310,36 @@ class GPT(nn.Module):
             dict(params=embedding_params, lr=embedding_lr * dmodel_lr_scale),
         ]
         adamw_kwargs = dict(betas=(0.8, 0.95), eps=1e-10, weight_decay=weight_decay)
-        AdamWFactory = DistAdamW if ddp else partial(torch.optim.AdamW, fused=True)
-        adamw_optimizer = AdamWFactory(adam_groups, **adamw_kwargs)
+        # DistAdamW requires first dim divisible by world_size
+        # separate out small params (like mHC gate with shape [1]) that can't be sharded
+        if ddp:
+            def can_shard(p):
+                return p.shape[0] >= world_size and p.shape[0] % world_size == 0
+            # filter each param group
+            shardable_groups = []
+            unshardable_params = []
+            for group in adam_groups:
+                shardable = [p for p in group["params"] if can_shard(p)]
+                unshardable = [p for p in group["params"] if not can_shard(p)]
+                if shardable:
+                    shardable_groups.append(dict(params=shardable, lr=group["lr"]))
+                unshardable_params.extend(unshardable)
+            # use DistAdamW for shardable params
+            adamw_optimizer = DistAdamW(shardable_groups, **adamw_kwargs) if shardable_groups else None
+            # use regular AdamW for unshardable params (like mHC gate)
+            if unshardable_params:
+                small_adamw = torch.optim.AdamW([dict(params=unshardable_params, lr=embedding_lr * dmodel_lr_scale)], **adamw_kwargs)
+            else:
+                small_adamw = None
+        else:
+            adamw_optimizer = partial(torch.optim.AdamW, fused=True)(adam_groups, **adamw_kwargs)
+            small_adamw = None
         # Create the Muon optimizer for the linear layers
         muon_kwargs = dict(lr=matrix_lr, momentum=0.95)
         MuonFactory = DistMuon if ddp else Muon
         muon_optimizer = MuonFactory(matrix_params, **muon_kwargs)
         # Combine them the two optimizers into one list
-        optimizers = [adamw_optimizer, muon_optimizer]
+        optimizers = [opt for opt in [adamw_optimizer, muon_optimizer, small_adamw] if opt is not None]
         for opt in optimizers:
             for group in opt.param_groups:
                 group["initial_lr"] = group["lr"]
