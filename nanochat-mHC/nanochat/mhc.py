@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 
+@torch.compiler.disable()
 def sinkhorn_log(
     logits: torch.Tensor,
     num_iters: int = 50,
