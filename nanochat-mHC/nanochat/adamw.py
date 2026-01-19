@@ -2,9 +2,17 @@
 Borrowed from modded-nanogpt. By Keller, @vagrawal, et al.
 Not a general optimizer! But works for our specific use.
 """
+import os
 import torch
 import torch.distributed as dist
 from torch import Tensor
+
+
+def _maybe_compile(fn):
+    """conditionally apply torch.compile based on SKIP_COMPILE env var"""
+    if os.environ.get("SKIP_COMPILE", "").lower() in ("1", "true"):
+        return fn
+    return torch.compile(fn)
 
 
 class DistAdamW(torch.optim.Optimizer):
@@ -16,7 +24,7 @@ class DistAdamW(torch.optim.Optimizer):
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
         super().__init__(param_groups, defaults)
 
-    @torch.compile
+    @_maybe_compile
     @torch.no_grad()
     def step(self):
         rank = dist.get_rank()
