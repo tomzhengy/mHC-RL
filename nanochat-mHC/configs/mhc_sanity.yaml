@@ -7,7 +7,7 @@ seed: 42
 
 # runtime
 device_type: ""
-skip_compile: false
+skip_compile: true
 
 # model architecture
 depth: 12

@@ -8,7 +8,7 @@ seed: -1 # random seed (-1 = no seed)
 
 # runtime
 device_type: "" # cuda|cpu|mps (empty = autodetect)
-skip_compile: false # skip torch.compile
+skip_compile: true # skip torch.compile
 
 # model architecture
 depth: 20 # transformer depth (model_dim = depth * 64)
