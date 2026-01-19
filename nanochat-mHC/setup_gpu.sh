@@ -3,8 +3,8 @@ set -e
 
 echo "=== nanochat-mHC GPU Setup ==="
 
-# install screen for background jobs
-apt update && apt install -y screen
+# install screen for background jobs, python headers for torch.compile
+apt update && apt install -y screen python3.10-dev
 
 # set base dir for nanochat artifacts (use /workspace for more disk space on cloud GPUs)
 export NANOCHAT_BASE_DIR="/workspace/nanochat"
