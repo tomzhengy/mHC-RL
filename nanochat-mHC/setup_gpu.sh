@@ -61,6 +61,12 @@ cp -r $TOKENIZER_DIR/* ~/.cache/nanochat/tokenizer/ 2>/dev/null || true
 echo "Downloading 240 data shards (~24GB)..."
 python -m nanochat.dataset -n 240
 
+# symlink base_data to ~/.cache/nanochat for compatibility with default paths
+# (dataset.py saves to $NANOCHAT_BASE_DIR/base_data, but training looks in ~/.cache/nanochat/base_data)
+echo "Creating base_data symlink..."
+rm -rf ~/.cache/nanochat/base_data 2>/dev/null || true
+ln -s $NANOCHAT_BASE_DIR/base_data ~/.cache/nanochat/base_data
+
 echo ""
 echo "=== Setup Complete ==="
 echo ""
