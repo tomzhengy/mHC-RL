@@ -18,7 +18,7 @@ echo "Steps: $STEPS"
 echo "Depth: $DEPTH"
 echo "GPUs: $NGPUS"
 echo "Seed: ${SEED:-42}"
-echo "Gate noise: off"
+echo "Gate noise: on"
 echo "WandB run: $WANDB_RUN"
 echo ""
 
@@ -47,7 +47,7 @@ torchrun --nproc_per_node=$NGPUS -m scripts.base_train -- \
     --mhc_num_streams=4 \
     --mhc_sinkhorn_iters=50 \
     --mhc_sinkhorn_tau=0.1 \
-    --mhc_gate_noise=False \
+    --mhc_gate_noise=True \
     --device_batch_size=16 \
     --total_batch_size=131072 \
     --eval_every=500 \
