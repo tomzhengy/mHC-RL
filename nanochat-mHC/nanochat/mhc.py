@@ -114,8 +114,8 @@ class DynamicMHC(nn.Module):
         # paper initializes γ=0.01 (near identity) for stable training
         self.gate = nn.Parameter(torch.tensor([-4.6]))  # sigmoid(-4.6) ≈ 0.01
 
-        # exploration probability as buffer (for torch.compile compatibility)
-        self.register_buffer('_explore_prob', torch.tensor(0.02))
+        # exploration probability (starts minimal, ramps up during warmup)
+        self._current_explore_prob = 0.02
 
         # diagnostics: store errors from actual forward pass (updated in get_matrices)
         # stored as tensors to avoid graph breaks from .item() during forward
@@ -174,18 +174,16 @@ class DynamicMHC(nn.Module):
 
         # during training, add noise to gate for robustness (for RL tuning)
         # this ensures the model learns to work across all gate values
-        # uses torch.where for compile compatibility (no Python control flow)
         if self.training and self.gate_noise_during_training:
-            # compute all potential values (compile-friendly: no branching)
-            explore_g = 0.1 + 0.8 * torch.rand(1, device=x.device, dtype=x.dtype)
-            lo = 1.0 - self.gate_noise_scale
-            hi = 1.0 + self.gate_noise_scale
-            noise = lo + (hi - lo) * torch.rand(1, device=x.device, dtype=x.dtype)
-            noisy_g = (g * noise).clamp(0.001, 0.99)
-
-            # select between explore and noisy based on random draw
-            rand_val = torch.rand(1, device=x.device, dtype=x.dtype)
-            g = torch.where(rand_val < self._explore_prob, explore_g, noisy_g)
+            if torch.rand(1).item() < self._current_explore_prob:
+                # full exploration: sample from [0.1, 0.9] to avoid extremes
+                g = 0.1 + 0.8 * torch.rand(1, device=x.device, dtype=x.dtype)
+            else:
+                # local exploration: perturb learned gate by noise
+                lo = 1.0 - self.gate_noise_scale
+                hi = 1.0 + self.gate_noise_scale
+                noise = lo + (hi - lo) * torch.rand(1, device=x.device, dtype=x.dtype)
+                g = (g * noise).clamp(0.1, 0.9)
 
         # identity matrix for interpolation
         I = torch.eye(n, device=H_res.device, dtype=H_res.dtype)
@@ -275,12 +273,9 @@ class DynamicMHC(nn.Module):
         if progress < warmup_frac:
             # linear ramp: 0.02 -> target over warmup period
             ramp = progress / warmup_frac
-            new_prob = min_explore + ramp * (target_explore - min_explore)
+            self._current_explore_prob = min_explore + ramp * (target_explore - min_explore)
         else:
-            new_prob = target_explore
-
-        # update buffer (in-place to preserve device/dtype)
-        self._explore_prob.fill_(new_prob)
+            self._current_explore_prob = target_explore
     
     def get_sinkhorn_diagnostics(self) -> dict:
         """
