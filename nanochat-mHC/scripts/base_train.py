@@ -82,7 +82,7 @@ def collect_mhc_metrics(model):
     # exploration schedule (first block's mhc_attn is representative)
     first_block = model.transformer.h[0]
     if hasattr(first_block, 'mhc_attn') and first_block.mhc_attn is not None:
-        metrics["mhc/explore_prob"] = first_block.mhc_attn._current_explore_prob
+        metrics["mhc/explore_prob"] = first_block.mhc_attn._explore_prob.item()
         metrics["mhc/gate_value"] = first_block.mhc_attn.get_gate()
 
     # sinkhorn diagnostics: verify doubly-stochastic property
