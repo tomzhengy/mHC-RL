@@ -35,6 +35,9 @@ fi
 echo "Starting training..."
 echo ""
 
+# export SKIP_COMPILE for muon optimizer (reads env var)
+export SKIP_COMPILE=${SKIP_COMPILE:-True}
+
 torchrun --nproc_per_node=$NGPUS -m scripts.base_train -- \
     --depth=$DEPTH \
     --num_iterations=$STEPS \
