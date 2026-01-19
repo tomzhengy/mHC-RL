@@ -181,7 +181,7 @@ class DynamicMHC(nn.Module):
             lo = 1.0 - self.gate_noise_scale
             hi = 1.0 + self.gate_noise_scale
             noise = lo + (hi - lo) * torch.rand(1, device=x.device, dtype=x.dtype)
-            noisy_g = (g * noise).clamp(0.1, 0.9)
+            noisy_g = (g * noise).clamp(0.001, 0.99)
 
             # select between explore and noisy based on random draw
             rand_val = torch.rand(1, device=x.device, dtype=x.dtype)
