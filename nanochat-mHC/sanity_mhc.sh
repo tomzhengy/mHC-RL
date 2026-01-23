@@ -1,6 +1,6 @@
 #!/bin/bash
-# Sanity run: Multi-GPU mHC training
-# Purpose: Verify mHC integration
+# Sanity run: Single-GPU mHC training with small batch size
+# Purpose: Replicate Jan 10 settings that achieved 0.087 stream_sim
 # Logs: row/col errors (raw + used) via wandb
 
 set -e
@@ -8,17 +8,17 @@ set -e
 # Configuration
 STEPS=${1:-5000}  # default 5000 steps, can override via CLI: ./sanity_mhc.sh 500
 DEPTH=${2:-12}   # smaller model for quick sanity check
-NGPUS=${NGPUS:-4}  # number of GPUs
 WANDB_RUN=${WANDB_RUN:-"mhc-sanity-$(date +%Y%m%d-%H%M%S)"}
 
 echo "======================================"
-echo "mHC Sanity Run"
+echo "mHC Sanity Run (Small Batch)"
 echo "======================================"
 echo "Steps: $STEPS"
 echo "Depth: $DEPTH"
-echo "GPUs: $NGPUS"
-echo "Seed: ${SEED:-42}"
+echo "device_batch_size: 4"
+echo "total_batch_size: 32768"
 echo "Gate noise: off"
+echo "torch.compile: off"
 echo "WandB run: $WANDB_RUN"
 echo ""
 
@@ -36,20 +36,19 @@ echo "Starting training..."
 echo ""
 
 # export SKIP_COMPILE for muon optimizer (reads env var)
-export SKIP_COMPILE=${SKIP_COMPILE:-True}
+export SKIP_COMPILE=True
 
-torchrun --nproc_per_node=$NGPUS -m scripts.base_train -- \
+python -m scripts.base_train \
     --depth=$DEPTH \
     --num_iterations=$STEPS \
-    --seed=${SEED:-42} \
-    --skip_compile=${SKIP_COMPILE:-True} \
+    --skip_compile=True \
     --mhc_enabled=True \
     --mhc_num_streams=4 \
     --mhc_sinkhorn_iters=50 \
     --mhc_sinkhorn_tau=0.1 \
     --mhc_gate_noise=False \
-    --device_batch_size=16 \
-    --total_batch_size=131072 \
+    --device_batch_size=4 \
+    --total_batch_size=32768 \
     --eval_every=500 \
     --core_metric_every=-1 \
     --sample_every=100 \
