@@ -44,8 +44,8 @@ python -m scripts.base_train \
     --skip_compile=True \
     --mhc_enabled=True \
     --mhc_num_streams=4 \
-    --mhc_sinkhorn_iters=50 \
-    --mhc_sinkhorn_tau=0.1 \
+    --mhc_sinkhorn_iters=20 \
+    --mhc_sinkhorn_tau=0.05 \
     --mhc_gate_noise=False \
     --device_batch_size=4 \
     --total_batch_size=32768 \
