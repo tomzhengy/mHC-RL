@@ -2,14 +2,18 @@
 
 # mHC speedrun: full nanochat training pipeline with mHC (manifold-constrained hyper-connections)
 # based on speedrun.sh but with mHC enabled for base model pretraining
-# designed for 8xH100 node
+# designed for 8xH100 node (or single GPU with NGPUS=1)
 
-# 1) Example launch:
+# 1) Example launch (8 GPUs):
 # bash speedrun_mhc.sh
-# 2) Example launch in a screen session:
+# 2) Example launch on single GPU:
+# NGPUS=1 bash speedrun_mhc.sh
+# 3) Example launch in a screen session:
 # screen -L -Logfile speedrun_mhc.log -S speedrun_mhc bash speedrun_mhc.sh
-# 3) Example launch with wandb logging:
-# WANDB_RUN=mhc-speedrun screen -L -Logfile speedrun_mhc.log -S speedrun_mhc bash speedrun_mhc.sh
+# 4) Example launch with wandb logging:
+# WANDB_RUN=mhc-d20 NGPUS=1 screen -L -Logfile speedrun_mhc.log -S speedrun_mhc bash speedrun_mhc.sh
+# 5) Skip tokenizer/data setup (if already done):
+# SKIP_SETUP=1 NGPUS=1 WANDB_RUN=mhc-d20 bash speedrun_mhc.sh
 
 # Default intermediate artifacts directory is in ~/.cache/nanochat
 export OMP_NUM_THREADS=1
@@ -47,52 +51,58 @@ fi
 python -m nanochat.report reset
 
 # -----------------------------------------------------------------------------
-# Tokenizer
+# Tokenizer and Data Setup (skip with SKIP_SETUP=1 if already done)
 
-# Install Rust / Cargo
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
+if [ -z "$SKIP_SETUP" ]; then
+    # Install Rust / Cargo
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
 
-# Build the rustbpe Tokenizer
-uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
+    # Build the rustbpe Tokenizer
+    uv run maturin develop --release --manifest-path rustbpe/Cargo.toml
 
-# Download the first ~2B characters of pretraining dataset
-# look at dev/repackage_data_reference.py for details on how this data was prepared
-# each data shard is ~250M chars
-# so we download 2e9 / 250e6 = 8 data shards at this point
-# each shard is ~100MB of text (compressed), so this is about ~800MB of data on disk
-python -m nanochat.dataset -n 8
-# Immediately also kick off downloading more shards in the background while tokenizer trains
-# See comment below for why 240 is the right number here
-python -m nanochat.dataset -n 240 &
-DATASET_DOWNLOAD_PID=$!
-# train the tokenizer with vocab size 2**16 = 65536 on ~2B characters of data
-python -m scripts.tok_train --max_chars=2000000000
-# evaluate the tokenizer (report compression ratio etc.)
-python -m scripts.tok_eval
+    # Download the first ~2B characters of pretraining dataset
+    # look at dev/repackage_data_reference.py for details on how this data was prepared
+    # each data shard is ~250M chars
+    # so we download 2e9 / 250e6 = 8 data shards at this point
+    # each shard is ~100MB of text (compressed), so this is about ~800MB of data on disk
+    python -m nanochat.dataset -n 8
+    # Immediately also kick off downloading more shards in the background while tokenizer trains
+    # See comment below for why 240 is the right number here
+    python -m nanochat.dataset -n 240 &
+    DATASET_DOWNLOAD_PID=$!
+    # train the tokenizer with vocab size 2**16 = 65536 on ~2B characters of data
+    python -m scripts.tok_train --max_chars=2000000000
+    # evaluate the tokenizer (report compression ratio etc.)
+    python -m scripts.tok_eval
+
+    # The d20 model is 561M parameters.
+    # Chinchilla says #tokens = 20X #params, so we need 561e6 * 20 = 11.2B tokens.
+    # Assume our tokenizer is 4.8 chars/token, this is 11.2B * 4.8 ~= 54B chars.
+    # At 250M chars/shard, this is 54B / 250M ~= 216 shards needed for pretraining.
+    # Round up to 240 for safety. At ~100MB/shard, this downloads ~24GB of data to disk.
+    # (The total number of shards available in the entire dataset is 1822.)
+    echo "Waiting for dataset download to complete..."
+    wait $DATASET_DOWNLOAD_PID
+else
+    echo "Skipping tokenizer/data setup (SKIP_SETUP=1)"
+fi
 
 # -----------------------------------------------------------------------------
 # Base model (pretraining)
 
-# The d20 model is 561M parameters.
-# Chinchilla says #tokens = 20X #params, so we need 561e6 * 20 = 11.2B tokens.
-# Assume our tokenizer is 4.8 chars/token, this is 11.2B * 4.8 ~= 54B chars.
-# At 250M chars/shard, this is 54B / 250M ~= 216 shards needed for pretraining.
-# Round up to 240 for safety. At ~100MB/shard, this downloads ~24GB of data to disk.
-# (The total number of shards available in the entire dataset is 1822.)
-echo "Waiting for dataset download to complete..."
-wait $DATASET_DOWNLOAD_PID
-
-# Number of processes/GPUs to use
-NPROC_PER_NODE=8
+# Number of processes/GPUs to use (override with NGPUS env var)
+NPROC_PER_NODE=${NGPUS:-8}
 
 # pretrain the d20 model with mHC enabled
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_train -- \
     --depth=20 \
     --mhc_enabled=True \
     --mhc_num_streams=4 \
-    --mhc_sinkhorn_iters=50 \
-    --mhc_sinkhorn_tau=0.1 \
+    --mhc_sinkhorn_iters=20 \
+    --mhc_sinkhorn_tau=0.05 \
+    --mhc_gate_noise=False \
+    --skip_compile=True \
     --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
 torchrun --standalone --nproc_per_node=$NPROC_PER_NODE -m scripts.base_loss
