@@ -91,10 +91,9 @@ class DynamicMHC(nn.Module):
         
         # learnable base matrices (static component)
         # H_res_base: near-identity initialization
-        # off-diagonal: -3.0, diagonal: 0.0
-        # with tau=0.05, exp(-3.0/0.05) = exp(-60) ≈ 0, so starts near identity
-        # but gradients can still flow (not as extreme as reference's -8.0)
-        init_h_res = torch.full((n, n), -3.0)
+        # off-diagonal: -5.0, diagonal: 0.0
+        # with tau=0.05, exp(-5.0/0.05) = exp(-100) ≈ 0, so starts near identity
+        init_h_res = torch.full((n, n), -5.0)
         init_h_res.fill_diagonal_(0.0)
         self.H_res_base = nn.Parameter(init_h_res)
         
@@ -125,8 +124,8 @@ class DynamicMHC(nn.Module):
         n = self.num_streams
         # gate: sigmoid(-4.6) ≈ 0.01
         self.gate.data.fill_(-4.6)
-        # H_res_base: -3.0 off-diagonal, 0.0 diagonal
-        self.H_res_base.data.fill_(-3.0)
+        # H_res_base: -5.0 off-diagonal, 0.0 diagonal
+        self.H_res_base.data.fill_(-5.0)
         self.H_res_base.data.fill_diagonal_(0.0)
         # H_pre_base: stream 0 preferred
         self.H_pre_base.data.zero_()
