@@ -1,22 +1,41 @@
 #!/bin/bash
-# Sanity run: Single-GPU mHC training with small batch size
-# Purpose: Replicate Jan 10 settings that achieved 0.087 stream_sim
-# Logs: row/col errors (raw + used) via wandb
+# Sanity run: mHC training with configurable batch size
+# Usage:
+#   ./sanity_mhc.sh [steps] [depth]           # small batch (single GPU)
+#   LARGE_BATCH=1 ./sanity_mhc.sh [steps] [depth]  # large batch (multi-GPU)
+#   NGPUS=4 LARGE_BATCH=1 ./sanity_mhc.sh     # specify GPU count
 
 set -e
 
 # Configuration
-STEPS=${1:-5000}  # default 5000 steps, can override via CLI: ./sanity_mhc.sh 500
-DEPTH=${2:-12}   # smaller model for quick sanity check
+STEPS=${1:-5000}
+DEPTH=${2:-12}
 WANDB_RUN=${WANDB_RUN:-"mhc-sanity-$(date +%Y%m%d-%H%M%S)"}
 
+# Batch size config
+if [ "${LARGE_BATCH:-0}" = "1" ]; then
+    DEVICE_BATCH_SIZE=16
+    TOTAL_BATCH_SIZE=131072
+    NGPUS=${NGPUS:-8}
+    BATCH_MODE="Large Batch (multi-GPU)"
+    USE_TORCHRUN=1
+else
+    DEVICE_BATCH_SIZE=4
+    TOTAL_BATCH_SIZE=32768
+    NGPUS=1
+    BATCH_MODE="Small Batch (single-GPU)"
+    USE_TORCHRUN=0
+fi
+
 echo "======================================"
-echo "mHC Sanity Run (Small Batch)"
+echo "mHC Sanity Run - $BATCH_MODE"
 echo "======================================"
 echo "Steps: $STEPS"
 echo "Depth: $DEPTH"
-echo "device_batch_size: 4"
-echo "total_batch_size: 32768"
+echo "GPUs: $NGPUS"
+echo "device_batch_size: $DEVICE_BATCH_SIZE"
+echo "total_batch_size: $TOTAL_BATCH_SIZE"
+echo "Hyperparams: H_res=-3.0, tau=0.05, iters=20"
 echo "Gate noise: off"
 echo "torch.compile: off"
 echo "WandB run: $WANDB_RUN"
@@ -38,22 +57,30 @@ echo ""
 # export SKIP_COMPILE for muon optimizer (reads env var)
 export SKIP_COMPILE=True
 
-python -m scripts.base_train \
-    --depth=$DEPTH \
-    --num_iterations=$STEPS \
-    --skip_compile=True \
-    --mhc_enabled=True \
-    --mhc_num_streams=4 \
-    --mhc_sinkhorn_iters=20 \
-    --mhc_sinkhorn_tau=0.05 \
-    --mhc_gate_noise=False \
-    --device_batch_size=4 \
-    --total_batch_size=32768 \
-    --eval_every=500 \
-    --core_metric_every=-1 \
-    --sample_every=100 \
-    --save_every=5000 \
+# Common args
+TRAIN_ARGS="
+    --depth=$DEPTH
+    --num_iterations=$STEPS
+    --skip_compile=True
+    --mhc_enabled=True
+    --mhc_num_streams=4
+    --mhc_sinkhorn_iters=20
+    --mhc_sinkhorn_tau=0.05
+    --mhc_gate_noise=False
+    --device_batch_size=$DEVICE_BATCH_SIZE
+    --total_batch_size=$TOTAL_BATCH_SIZE
+    --eval_every=500
+    --core_metric_every=-1
+    --sample_every=100
+    --save_every=5000
     --run=$WANDB_RUN
+"
+
+if [ "$USE_TORCHRUN" = "1" ]; then
+    torchrun --standalone --nproc_per_node=$NGPUS -m scripts.base_train -- $TRAIN_ARGS
+else
+    python -m scripts.base_train $TRAIN_ARGS
+fi
 
 echo ""
 echo "======================================"
@@ -61,12 +88,8 @@ echo "Sanity run complete!"
 echo "======================================"
 echo ""
 echo "Check wandb for mHC metrics:"
-echo "  - mhc/sinkhorn_row_err_raw   (base matrix only)"
-echo "  - mhc/sinkhorn_col_err_raw   (base matrix only)"
-echo "  - mhc/sinkhorn_row_err_used  (actual forward pass H_res)"
-echo "  - mhc/sinkhorn_col_err_used  (actual forward pass H_res)"
-echo "  - mhc/H_res_diag_mean        (diagonal dominance)"
+echo "  - mhc/stream_similarity"
 echo "  - mhc/gate_value"
+echo "  - mhc/sinkhorn_row_err_raw"
+echo "  - mhc/H_res_diag_mean"
 echo ""
-echo "Expected: both raw and used errors should be < 1e-6"
-echo "If used >> raw, check gate interpolation or dynamic deltas."
