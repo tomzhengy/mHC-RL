@@ -50,7 +50,7 @@ class DynamicMHC(nn.Module):
         self,
         dim: int,
         num_streams: int = 4,
-        sinkhorn_iters: int = 20,
+        sinkhorn_iters: int = 50,
         sinkhorn_tau: float = 0.05,
         layer_idx: int = 0,
         gate_noise: bool = True,
