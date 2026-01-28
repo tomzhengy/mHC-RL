@@ -25,6 +25,17 @@ from nanochat.dataloader import tokenizing_distributed_data_loader, tokenizing_d
 from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, print_banner, get_base_dir, autodetect_device_type
 
 
+def enable_mhc_diagnostics(model):
+    """enable diagnostics capture for next forward pass."""
+    if not hasattr(model, 'config') or not model.config.mhc_enabled:
+        return
+    for block in model.transformer.h:
+        if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
+            block.mhc_attn.enable_used_diagnostics()
+        if hasattr(block, 'mhc_mlp') and block.mhc_mlp is not None:
+            block.mhc_mlp.enable_used_diagnostics()
+
+
 def collect_mhc_metrics(model):
     """collect mHC-specific metrics for logging."""
     metrics = {}
@@ -479,6 +490,9 @@ while True:
     # evaluate the gradient
     synchronize()
     t0 = time.time()
+    # enable mhc diagnostics capture for this step (only on first micro_step)
+    if mhc_enabled:
+        enable_mhc_diagnostics(orig_model)
     for micro_step in range(grad_accum_steps):
         with autocast_ctx:
             loss = model(x, y)
