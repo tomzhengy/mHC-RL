@@ -9,7 +9,7 @@ set -e
 
 # Configuration
 STEPS=${1:-5000}
-DEPTH=${2:-12}
+DEPTH=${2:-20}
 WANDB_RUN=${WANDB_RUN:-"mhc-sanity-$(date +%Y%m%d-%H%M%S)"}
 
 # Batch size config
@@ -35,8 +35,8 @@ echo "Depth: $DEPTH"
 echo "GPUs: $NGPUS"
 echo "device_batch_size: $DEVICE_BATCH_SIZE"
 echo "total_batch_size: $TOTAL_BATCH_SIZE"
-echo "Hyperparams: H_res=-3.0, tau=0.05, iters=20"
-echo "Gate noise: on"
+echo "Hyperparams: H_res=-4.0, tau=0.2, iters=50" 
+echo "Gate noise: off"
 echo "torch.compile: off"
 echo "WandB run: $WANDB_RUN"
 echo ""
@@ -65,8 +65,8 @@ TRAIN_ARGS="
     --mhc_enabled=True
     --mhc_num_streams=4
     --mhc_sinkhorn_iters=50
-    --mhc_sinkhorn_tau=0.05
-    --mhc_gate_noise=True
+    --mhc_sinkhorn_tau=0.2
+    --mhc_gate_noise=False
     --device_batch_size=$DEVICE_BATCH_SIZE
     --total_batch_size=$TOTAL_BATCH_SIZE
     --eval_every=500

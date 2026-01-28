@@ -51,9 +51,9 @@ class DynamicMHC(nn.Module):
         dim: int,
         num_streams: int = 4,
         sinkhorn_iters: int = 50,
-        sinkhorn_tau: float = 0.05,
+        sinkhorn_tau: float = 0.2,
         layer_idx: int = 0,
-        gate_noise: bool = True,
+        gate_noise: bool = False,
         gate_exploration_prob: float = 0.2,
         gate_noise_scale: float = 0.3,
     ):
@@ -92,7 +92,7 @@ class DynamicMHC(nn.Module):
         # learnable base matrices (static component)
         # H_res_base: near-identity initialization
         # off-diagonal: -4.0, diagonal: 0.0
-        # with tau=0.05, exp(-4.0/0.05) = exp(-80) ≈ 0, so starts near identity
+        # with tau=0.2, exp(-4.0/0.2) = exp(-20) ≈ 0, so starts near identity
         init_h_res = torch.full((n, n), -4.0)
         init_h_res.fill_diagonal_(0.0)
         self.H_res_base = nn.Parameter(init_h_res)

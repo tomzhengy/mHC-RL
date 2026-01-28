@@ -2,7 +2,7 @@
 
 ## Summary
 
-Best configuration so far: **v3 (current)** - good stream_similarity with stable training.
+Best configuration so far: **v5 (current)** - depth=20 with -4.0 init, gate learns while maintaining reasonable stream_similarity.
 
 ## Configurations Tested
 
