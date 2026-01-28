@@ -36,7 +36,7 @@ echo "GPUs: $NGPUS"
 echo "device_batch_size: $DEVICE_BATCH_SIZE"
 echo "total_batch_size: $TOTAL_BATCH_SIZE"
 echo "Hyperparams: H_res=-3.0, tau=0.05, iters=20"
-echo "Gate noise: off"
+echo "Gate noise: on"
 echo "torch.compile: off"
 echo "WandB run: $WANDB_RUN"
 echo ""
@@ -66,7 +66,7 @@ TRAIN_ARGS="
     --mhc_num_streams=4
     --mhc_sinkhorn_iters=50
     --mhc_sinkhorn_tau=0.05
-    --mhc_gate_noise=False
+    --mhc_gate_noise=True
     --device_batch_size=$DEVICE_BATCH_SIZE
     --total_batch_size=$TOTAL_BATCH_SIZE
     --eval_every=500
