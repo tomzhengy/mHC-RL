@@ -216,6 +216,10 @@ class StaticMHC(nn.Module):
             "offdiag_mean": H_res_raw[~torch.eye(n, dtype=bool, device=H_res_raw.device)].mean().item(),
         }
 
+    def enable_used_diagnostics(self):
+        """Compatibility method - static mHC always computes diagnostics."""
+        pass  # no-op for static, diagnostics computed every forward
+
     def get_used_diagnostics(self) -> dict:
         """Get row/col errors from the last forward pass."""
         return {
