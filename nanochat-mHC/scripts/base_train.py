@@ -69,15 +69,22 @@ def collect_mhc_metrics(model):
     for i, block in enumerate(model.transformer.h):
         if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
             mhc = block.mhc_attn
-            h_res_norms.append(mhc.H_res_base.data.norm().item())
-            h_pre_norms.append(mhc.H_pre_base.data.norm().item())
-            h_post_norms.append(mhc.H_post_base.data.norm().item())
-            if mhc.H_res_base.grad is not None:
-                h_res_grads.append(mhc.H_res_base.grad.norm().item())
-            if mhc.H_pre_base.grad is not None:
-                h_pre_grads.append(mhc.H_pre_base.grad.norm().item())
-            if mhc.H_post_base.grad is not None:
-                h_post_grads.append(mhc.H_post_base.grad.norm().item())
+            # handle both static (H_res_logits) and dynamic (H_res_base) attribute names
+            h_res_param = getattr(mhc, 'H_res_base', None) or getattr(mhc, 'H_res_logits', None)
+            h_pre_param = getattr(mhc, 'H_pre_base', None) or getattr(mhc, 'H_pre_logits', None)
+            h_post_param = getattr(mhc, 'H_post_base', None) or getattr(mhc, 'H_post_logits', None)
+            if h_res_param is not None:
+                h_res_norms.append(h_res_param.data.norm().item())
+                if h_res_param.grad is not None:
+                    h_res_grads.append(h_res_param.grad.norm().item())
+            if h_pre_param is not None:
+                h_pre_norms.append(h_pre_param.data.norm().item())
+                if h_pre_param.grad is not None:
+                    h_pre_grads.append(h_pre_param.grad.norm().item())
+            if h_post_param is not None:
+                h_post_norms.append(h_post_param.data.norm().item())
+                if h_post_param.grad is not None:
+                    h_post_grads.append(h_post_param.grad.norm().item())
 
     if h_res_norms:
         metrics["mhc/H_res_norm_mean"] = sum(h_res_norms) / len(h_res_norms)
@@ -93,8 +100,11 @@ def collect_mhc_metrics(model):
     # exploration schedule (first block's mhc_attn is representative)
     first_block = model.transformer.h[0]
     if hasattr(first_block, 'mhc_attn') and first_block.mhc_attn is not None:
-        metrics["mhc/explore_prob"] = first_block.mhc_attn._current_explore_prob
-        metrics["mhc/gate_value"] = first_block.mhc_attn.get_gate()
+        mhc = first_block.mhc_attn
+        # _current_explore_prob only exists in DynamicMHC
+        if hasattr(mhc, '_current_explore_prob'):
+            metrics["mhc/explore_prob"] = mhc._current_explore_prob
+        metrics["mhc/gate_value"] = mhc.get_gate()
 
     # sinkhorn diagnostics: verify doubly-stochastic property
     # - "raw" = base matrix only (H_res_base through Sinkhorn)
