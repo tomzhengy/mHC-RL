@@ -151,10 +151,11 @@ defaults = dict(
     depth=20,
     max_seq_len=2048,
     mhc_enabled=False,
+    mhc_static=True,  # True = static (stable), False = dynamic (experimental)
     mhc_num_streams=4,
-    mhc_sinkhorn_iters=50,
-    mhc_sinkhorn_tau=0.1,
-    mhc_gate_noise=False,
+    mhc_sinkhorn_iters=20,  # reference uses 20
+    mhc_sinkhorn_tau=0.05,  # reference uses 0.05
+    mhc_gate_noise=False,   # only for dynamic mode
     num_iterations=-1,
     target_flops=-1.0,
     target_param_data_ratio=20,
@@ -267,13 +268,15 @@ model_config_kwargs = dict(
     n_kv_head=num_kv_heads,
     n_embd=model_dim,
     mhc_enabled=mhc_enabled,
+    mhc_static=mhc_static,
     mhc_num_streams=mhc_num_streams,
     mhc_sinkhorn_iters=mhc_sinkhorn_iters,
     mhc_sinkhorn_tau=mhc_sinkhorn_tau,
     mhc_gate_noise=mhc_gate_noise,
 )
 if mhc_enabled:
-    print0(f"mHC enabled: {mhc_num_streams} streams, {mhc_sinkhorn_iters} Sinkhorn iters, tau={mhc_sinkhorn_tau}, gate_noise={mhc_gate_noise}")
+    mode = "static" if mhc_static else "dynamic"
+    print0(f"mHC enabled ({mode}): {mhc_num_streams} streams, {mhc_sinkhorn_iters} Sinkhorn iters, tau={mhc_sinkhorn_tau}")
 with torch.device("meta"):
     # All tensors are created as meta tensors (they have shape/dtype but no data)
     model_config = GPTConfig(**model_config_kwargs)

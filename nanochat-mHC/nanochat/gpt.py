@@ -21,10 +21,11 @@ class GPTConfig:
     n_kv_head: int = 6 # number of key/value heads (GQA)
     n_embd: int = 768
     mhc_enabled: bool = False
+    mhc_static: bool = True           # True = static (stable), False = dynamic (experimental)
     mhc_num_streams: int = 4          # expansion rate (n)
-    mhc_sinkhorn_iters: int = 50      # iterations for doubly-stochastic projection
-    mhc_sinkhorn_tau: float = 0.1     # temperature (lower = sharper routing)
-    mhc_gate_noise: bool = False      # OFF by default - verify baseline first, then enable for RL
+    mhc_sinkhorn_iters: int = 20      # iterations for doubly-stochastic projection (reference uses 20)
+    mhc_sinkhorn_tau: float = 0.05    # temperature (reference uses 0.05)
+    mhc_gate_noise: bool = False      # OFF by default - only for dynamic mode
     mhc_gate_explore_prob: float = 0.2  # probability of sampling random gate [0.1,0.9]
     mhc_gate_noise_scale: float = 0.3   # ±30% perturbation when not exploring
 
@@ -124,20 +125,35 @@ class Block(nn.Module):
         
         # mHC wrappers (if enabled)
         self.mhc_enabled = config.mhc_enabled
+        self.mhc_static = config.mhc_static
         if self.mhc_enabled:
-            from nanochat.mhc import DynamicMHC
-            mhc_kwargs = dict(
-                dim=config.n_embd,
-                num_streams=config.mhc_num_streams,
-                sinkhorn_iters=config.mhc_sinkhorn_iters,
-                sinkhorn_tau=config.mhc_sinkhorn_tau,
-                layer_idx=layer_idx,
-                gate_noise=config.mhc_gate_noise,
-                gate_exploration_prob=config.mhc_gate_explore_prob,
-                gate_noise_scale=config.mhc_gate_noise_scale,
-            )
-            self.mhc_attn = DynamicMHC(**mhc_kwargs)
-            self.mhc_mlp = DynamicMHC(**mhc_kwargs)
+            if config.mhc_static:
+                # static mHC: reference implementation, stable training
+                from nanochat.mhc.static import StaticMHC
+                mhc_kwargs = dict(
+                    dim=config.n_embd,
+                    num_streams=config.mhc_num_streams,
+                    sinkhorn_iters=config.mhc_sinkhorn_iters,
+                    sinkhorn_tau=config.mhc_sinkhorn_tau,
+                    layer_idx=layer_idx,
+                )
+                self.mhc_attn = StaticMHC(**mhc_kwargs)
+                self.mhc_mlp = StaticMHC(**mhc_kwargs)
+            else:
+                # dynamic mHC: experimental per-token routing
+                from nanochat.mhc.dynamic import DynamicMHC
+                mhc_kwargs = dict(
+                    dim=config.n_embd,
+                    num_streams=config.mhc_num_streams,
+                    sinkhorn_iters=config.mhc_sinkhorn_iters,
+                    sinkhorn_tau=config.mhc_sinkhorn_tau,
+                    layer_idx=layer_idx,
+                    gate_noise=config.mhc_gate_noise,
+                    gate_exploration_prob=config.mhc_gate_explore_prob,
+                    gate_noise_scale=config.mhc_gate_noise_scale,
+                )
+                self.mhc_attn = DynamicMHC(**mhc_kwargs)
+                self.mhc_mlp = DynamicMHC(**mhc_kwargs)
 
     def forward(self, x, cos_sin, kv_cache):
         if not self.mhc_enabled:
@@ -272,13 +288,14 @@ class GPT(nn.Module):
     def update_mhc_exploration(self, progress: float, warmup_frac: float = 0.1):
         """
         Update gate exploration schedule for all mHC modules based on training progress.
-        Call this each step during training.
-        
+        Call this each step during training. Only applies to dynamic mHC.
+
         Args:
             progress: Training progress in [0, 1] (current_step / total_steps)
             warmup_frac: Fraction of training to ramp up exploration (default: 10%)
         """
-        if not self.config.mhc_enabled:
+        # only dynamic mHC has exploration schedule
+        if not self.config.mhc_enabled or self.config.mhc_static:
             return
         for block in self.transformer.h:
             if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:

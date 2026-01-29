@@ -35,8 +35,8 @@ echo "Depth: $DEPTH"
 echo "GPUs: $NGPUS"
 echo "device_batch_size: $DEVICE_BATCH_SIZE"
 echo "total_batch_size: $TOTAL_BATCH_SIZE"
-echo "Hyperparams: H_res=-4.0, tau=0.2, iters=50" 
-echo "Gate noise: off"
+echo "Mode: static (reference implementation)"
+echo "Hyperparams: H_res=-8.0 (reference), tau=0.05, iters=20"
 echo "torch.compile: off"
 echo "WandB run: $WANDB_RUN"
 echo ""
@@ -63,10 +63,10 @@ TRAIN_ARGS="
     --num_iterations=$STEPS
     --skip_compile=True
     --mhc_enabled=True
+    --mhc_static=True
     --mhc_num_streams=4
-    --mhc_sinkhorn_iters=50
-    --mhc_sinkhorn_tau=0.2
-    --mhc_gate_noise=False
+    --mhc_sinkhorn_iters=20
+    --mhc_sinkhorn_tau=0.05
     --device_batch_size=$DEVICE_BATCH_SIZE
     --total_batch_size=$TOTAL_BATCH_SIZE
     --eval_every=500
