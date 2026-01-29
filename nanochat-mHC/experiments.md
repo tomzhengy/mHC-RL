@@ -2,7 +2,14 @@
 
 ## Summary
 
-Best configuration so far: **v5 (current)** - depth=20 with -4.0 init, gate learns while maintaining reasonable stream_similarity.
+**Current approach:** Switched to **static mHC** (matching reference implementation) for stable training.
+
+Dynamic mHC experiments showed fundamental tradeoffs that couldn't be resolved:
+
+- Good sinkhorn convergence OR good stream_similarity - not both
+- Per-token routing via projections creates unstable training dynamics
+
+Static mHC uses per-layer H_res (no input-dependent projections), which is proven stable.
 
 ## Configurations Tested
 
@@ -78,19 +85,54 @@ torch.compile: disabled
 
 ---
 
-### v4: Large Batch + Optimized Init (TODO)
+### v4: Depth=20 Dynamic Experiments (Jan 28-29)
+
+All at depth=20, small batch, dynamic mHC:
+
+**v4a: -3.0 init, tau=0.05**
+
+- stream_sim: 0.61 (bad - streams collapsed)
+- Didn't work at deeper depth
+
+**v4b: -5.0 init, tau=0.05**
+
+- stream_sim: 0.278 (good)
+- gate: 0.008 (barely learning - too extreme init)
+- sinkhorn_err: good
+
+**v4c: -4.0 init, tau=0.05** (run 015210)
+
+- stream_sim: 0.387
+- gate: 0.452 (learning!)
+- sinkhorn_err: 0.17 (bad convergence)
+
+**v4d: -4.0 init, tau=0.2** (run 232904)
+
+- stream_sim: 0.765 (bad - too much mixing)
+- gate: 0.746 (learning)
+- sinkhorn_err: 0.006 (good)
+
+**Conclusion:** Dynamic mHC has fundamental tradeoff at depth=20:
+
+- Low tau: sinkhorn struggles, but streams differentiate
+- High tau: sinkhorn converges, but streams collapse
+
+---
+
+### v5: Static mHC (Jan 29) - CURRENT
+
+Switched to static H_res (reference implementation style):
 
 ```
-H_res_base off-diag: -3.0
+mode: static (mhc_static=True)
+H_res_logits off-diag: -8.0 (reference default)
 sinkhorn_tau: 0.05
 sinkhorn_iters: 20
-device_batch_size: 16
-total_batch_size: 131072
-gate_noise: False
-torch.compile: disabled
+gate init: 0.01
+depth: 20
 ```
 
-**Expected:** Combine v3's good stream_similarity with v2's better val/bpb.
+**Expected:** Stable training matching reference implementation.
 
 ---
 
@@ -114,12 +156,27 @@ torch.compile: disabled
 - Likely due to other config differences, not compile itself
 - Sinkhorn excluded via @torch.compiler.disable() decorator
 
+### Static vs Dynamic mHC
+
+**Dynamic mHC (our original approach):**
+
+- Per-token H_res via learned projections
+- More expressive - different routing for different tokens
+- Unstable at depth=20: tradeoff between sinkhorn convergence and stream differentiation
+- No one has successfully combined per-token routing with doubly-stochastic constraints
+
+**Static mHC (reference approach):**
+
+- Per-layer H_res (same for all tokens)
+- Proven stable in lucidrains and tokenbender implementations
+- For RL control later, can make gate input-dependent instead
+
 ### Paper Reference Values
 
 - Paper uses gamma init = 0.01 (we match this)
 - Paper uses sinkhorn_iters = 20 (we now match this)
 - Paper doesn't specify tau or H_res init values
-- Reference implementation uses -8.0 off-diag (more extreme than ours)
+- Reference implementation uses -8.0 off-diag
 
 ## Metrics to Watch
 
