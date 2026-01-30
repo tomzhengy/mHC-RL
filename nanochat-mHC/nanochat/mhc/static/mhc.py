@@ -139,10 +139,9 @@ class StaticMHC(nn.Module):
         I = torch.eye(n, device=H_res_raw.device, dtype=H_res_raw.dtype)
         H_res = (1.0 - g) * I + g * H_res_raw
 
-        # store diagnostics
-        with torch.no_grad():
-            self._last_row_err = (H_res.sum(dim=-1) - 1).abs().mean().item()
-            self._last_col_err = (H_res.sum(dim=-2) - 1).abs().mean().item()
+        # store H_res for diagnostics (no .item() here to avoid graph breaks)
+        # diagnostics are computed lazily in get_sinkhorn_diagnostics()
+        self._last_H_res = H_res.detach()
 
         return H_res, H_pre, H_post
 
