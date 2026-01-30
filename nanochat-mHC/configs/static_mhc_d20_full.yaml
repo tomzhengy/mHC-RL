@@ -2,6 +2,8 @@
 # matches speedrun.sh specs exactly, just with mHC enabled
 # requires 8 GPUs (e.g., 8xH100 or 8xA100)
 
+run: mhc-d20-static-full
+
 # model
 depth: 20
 max_seq_len: 2048
@@ -42,4 +44,4 @@ sample_every: 2000
 save_every: -1 # auto-saves at last_step
 
 # misc
-skip_compile: true
+skip_compile: false # static mHC works with torch.compile (sinkhorn has @torch.compiler.disable)
