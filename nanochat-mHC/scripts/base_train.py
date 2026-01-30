@@ -191,16 +191,19 @@ defaults = dict(
 
 # check for --config=path/to/config.yaml in CLI args
 config_file = None
-config_arg_idx = None
+args_to_remove = []
 for i, arg in enumerate(sys.argv[1:], start=1):
     if arg.startswith("--config="):
         config_file = arg.split("=", 1)[1]
-        config_arg_idx = i
-        break
+        args_to_remove.append(i)
+    elif arg == "--":
+        # remove torchrun's -- separator
+        args_to_remove.append(i)
 
-# remove --config from sys.argv so configurator doesn't see it
-if config_arg_idx is not None:
-    sys.argv.pop(config_arg_idx)
+# remove special args from sys.argv so configurator doesn't see them
+# remove in reverse order to preserve indices
+for idx in sorted(args_to_remove, reverse=True):
+    sys.argv.pop(idx)
 
 # load from YAML if specified
 if config_file:
