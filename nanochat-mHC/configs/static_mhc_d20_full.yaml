@@ -13,8 +13,10 @@ mhc_num_streams: 4
 mhc_sinkhorn_iters: 20
 mhc_sinkhorn_tau: 0.05
 
-# batch size (matches speedrun.sh for 8 GPUs)
-device_batch_size: 32
+# batch size (reduced for mHC memory overhead, uses grad accumulation)
+# mHC 4 streams = ~4x activation memory, so device_batch_size reduced from 32 to 8
+# gradient accumulation: 524288 / (8 * 2048 * 8 GPUs) = 4
+device_batch_size: 8
 total_batch_size: 524288
 
 # training (Chinchilla scaling: 20x params in tokens)
