@@ -191,10 +191,16 @@ defaults = dict(
 
 # check for --config=path/to/config.yaml in CLI args
 config_file = None
-for arg in sys.argv[1:]:
+config_arg_idx = None
+for i, arg in enumerate(sys.argv[1:], start=1):
     if arg.startswith("--config="):
         config_file = arg.split("=", 1)[1]
+        config_arg_idx = i
         break
+
+# remove --config from sys.argv so configurator doesn't see it
+if config_arg_idx is not None:
+    sys.argv.pop(config_arg_idx)
 
 # load from YAML if specified
 if config_file:
