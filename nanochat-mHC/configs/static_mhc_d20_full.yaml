@@ -1,0 +1,43 @@
+# static mHC depth=20 full training config
+# matches speedrun.sh specs exactly, just with mHC enabled
+# requires 8 GPUs (e.g., 8xH100 or 8xA100)
+
+# model
+depth: 20
+max_seq_len: 2048
+
+# mHC settings (static mode)
+mhc_enabled: true
+mhc_static: true
+mhc_num_streams: 4
+mhc_sinkhorn_iters: 20
+mhc_sinkhorn_tau: 0.05
+
+# batch size (matches speedrun.sh for 8 GPUs)
+device_batch_size: 32
+total_batch_size: 524288
+
+# training (Chinchilla scaling: 20x params in tokens)
+# 561M params * 20 = 11.2B tokens
+# at 524288 batch size = ~21k iterations
+num_iterations: -1 # auto-calculate from target_param_data_ratio
+target_param_data_ratio: 20
+
+# optimizer (speedrun defaults)
+embedding_lr: 0.2
+unembedding_lr: 0.004
+matrix_lr: 0.02
+weight_decay: 0.0
+grad_clip: 1.0
+warmup_ratio: 0.0
+warmdown_ratio: 0.2
+final_lr_frac: 0.0
+
+# evaluation
+eval_every: 250
+core_metric_every: 2000
+sample_every: 2000
+save_every: 5000
+
+# misc
+skip_compile: true
