@@ -124,11 +124,10 @@ def collect_mhc_metrics(model):
             diag_means.append(diag["diag_mean"])
             offdiag_means.append(diag["offdiag_mean"])
 
-            # used diagnostics (from actual forward pass, if captured)
+            # used diagnostics (from actual forward pass)
             used_diag = block.mhc_attn.get_used_diagnostics()
-            if used_diag["row_err_used"] > 0 or used_diag["col_err_used"] > 0:
-                row_errs_used.append(used_diag["row_err_used"])
-                col_errs_used.append(used_diag["col_err_used"])
+            row_errs_used.append(used_diag["row_err_used"])
+            col_errs_used.append(used_diag["col_err_used"])
 
     if row_errs_raw:
         metrics["mhc/sinkhorn_row_err_raw"] = sum(row_errs_raw) / len(row_errs_raw)
