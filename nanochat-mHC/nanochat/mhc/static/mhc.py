@@ -102,9 +102,9 @@ class StaticMHC(nn.Module):
         # paper init: gamma = 0.01 -> logit = -4.6
         self.gate = nn.Parameter(torch.tensor([-4.6]))
 
-        # diagnostics
-        self._last_row_err = 0.0
-        self._last_col_err = 0.0
+        # diagnostics - store H_res tensor for lazy error computation
+        # initialized to identity matrix (perfect doubly-stochastic)
+        self._last_H_res = torch.eye(num_streams)
 
     def _init_params(self):
         """Re-initialize params after to_empty() wipes them."""
@@ -221,9 +221,11 @@ class StaticMHC(nn.Module):
 
     def get_used_diagnostics(self) -> dict:
         """Get row/col errors from the last forward pass."""
+        # compute errors lazily from stored tensor (avoids .item() in forward pass)
+        H_res = self._last_H_res
         return {
-            "row_err_used": self._last_row_err,
-            "col_err_used": self._last_col_err,
+            "row_err_used": (H_res.sum(dim=-1) - 1).abs().mean().item(),
+            "col_err_used": (H_res.sum(dim=-2) - 1).abs().mean().item(),
         }
 
     def extra_repr(self) -> str:
