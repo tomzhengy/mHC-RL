@@ -36,12 +36,6 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Testing (not needed in repo)
-tests/
-**/tests/
-test_*.py
-*_test.py
-
 # Git artifacts
 *.lock
 
@@ -59,16 +53,11 @@ logs/
 data/
 *.jsonl
 
-# Documentation (personal notes, not needed in repo)
-prd.md
-prd-2.md
-LEARNING_PATH.md
-nia-sources.md
-CLAUDE.md
+# Research notes (local only)
+research/
 
 # UV cache
 .uv/
 
 # Compiled
 *.pyc
-
