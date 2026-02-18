@@ -5,8 +5,13 @@ multi-head communication (mHC) controller for GSM8K math problems. trains GPT-2 
 ## project structure
 
 ```
-mHC-gsm8k/
-├── nanochat/              # forked GPT-2 training framework with mHC
+mHC-RL/
+├── .gitignore
+├── CLAUDE.md              # tracked project instructions
+├── README.md
+├── pyproject.toml
+├── uv.lock
+├── nanochat-mHC/          # forked GPT-2 training framework with mHC
 │   ├── nanochat/          # core library
 │   │   ├── gpt.py         # GPT model with mHC integration
 │   │   ├── mhc/           # mHC implementations
@@ -19,20 +24,31 @@ mHC-gsm8k/
 │   ├── configs/           # training configs
 │   │   └── static_mhc_d20.yaml  # validated d20 config
 │   └── sanity_mhc.sh      # quick sanity check script
-├── routing/               # HuggingFace wrapper for multi-stream routing
-│   ├── multistream_wrapper.py  # wraps decoder with n residual streams
-│   └── mixing_ops.py      # mixing matrix operations
-├── envs/                  # gymnasium environments
-│   └── gsm8k_env.py       # GSM8K env for RL-controlled routing
-├── controller/            # RL policy (planned)
-│   ├── policy.py          # (empty - to be implemented)
-│   └── features.py        # (empty - to be implemented)
-└── configs/               # configuration files
+├── rl/                    # RL integration
+│   ├── __init__.py
+│   ├── controller/        # RL policy
+│   │   ├── policy.py
+│   │   ├── features.py
+│   │   └── model_loader.py
+│   ├── envs/              # gymnasium environments
+│   │   └── gsm8k_env.py   # GSM8K env for RL-controlled routing
+│   ├── routing/           # HuggingFace wrapper for multi-stream routing
+│   │   ├── multistream_wrapper.py
+│   │   └── mixing_ops.py
+│   ├── train/             # training scripts
+│   │   ├── reinforce_train.py
+│   │   └── eval.py
+│   ├── scripts/           # data preparation
+│   │   └── prepare_data.py
+│   └── data/              # training data (tracked .jsonl files)
+├── reference/             # git submodule -> tokenbender/mHC-manifold-constrained-hyper-connections
+└── research/              # local notes (gitignored)
 ```
 
 ## key concepts
 
 ### mHC (multi-head communication)
+
 - paper: arxiv 2512.24880
 - adds learnable mixing between residual streams using doubly-stochastic matrices
 - uses Sinkhorn-Knopp algorithm to enforce row AND column sums = 1
@@ -40,6 +56,7 @@ mHC-gsm8k/
 - paper init: g=0.01 (start near identity, learn to mix more)
 
 ### key parameters
+
 - `mhc_enabled`: enable mHC (default False)
 - `mhc_static`: use static H_res (default True, recommended)
 - `mhc_num_streams`: number of residual streams (default 4)
@@ -50,12 +67,14 @@ mHC-gsm8k/
 ### static vs dynamic mHC
 
 **static (recommended):**
+
 - per-layer H_res parameters (same for all tokens)
 - H_res_logits init: -8.0 off-diagonal, 0.0 diagonal
 - stable training, proven in reference implementations
 - stream differentiation via H_pre/H_post (width connections)
 
 **dynamic (experimental):**
+
 - per-token H_res via learned projections
 - more expressive but unstable at depth > 12
 - fundamental tradeoff: good sinkhorn convergence OR good stream_similarity, not both
@@ -63,6 +82,7 @@ mHC-gsm8k/
 ## development
 
 ### setup
+
 ```bash
 cd nanochat
 uv sync
@@ -70,18 +90,21 @@ source .venv/bin/activate
 ```
 
 ### sanity check (single GPU)
+
 ```bash
 cd nanochat
 ./sanity_mhc.sh 5000  # 5000 steps, depth 20, static mHC
 ```
 
 ### full training with config
+
 ```bash
 cd nanochat
 python -m scripts.base_train --config=configs/static_mhc_d20.yaml --run=my-run-name
 ```
 
 ### manual training
+
 ```bash
 cd nanochat
 python -m scripts.base_train \
@@ -93,12 +116,14 @@ python -m scripts.base_train \
 ```
 
 ### key environment variables
+
 - `TORCH_COMPILE_DISABLE=1` - disable torch.compile (required for mHC compatibility)
 - `WANDB_RUN` - custom wandb run name
 
 ## wandb metrics
 
 ### mHC metrics (logged every 20 steps)
+
 - `mhc/sinkhorn_row_err_raw` - base matrix row error (should be < 1e-6)
 - `mhc/sinkhorn_col_err_raw` - base matrix col error (should be < 1e-6)
 - `mhc/sinkhorn_row_err_used` - actual H_res row error after gate interpolation
@@ -110,6 +135,7 @@ python -m scripts.base_train \
 ## code patterns
 
 ### mHC 1D params go to AdamW, not Muon
+
 muon optimizer requires 2D+ tensors. mHC has 1D params (gate, H_pre_base, H_post_base) that must be filtered to AdamW:
 
 ```python
@@ -120,12 +146,14 @@ mhc_1d_params = [p for n, p in model.named_parameters()
 ```
 
 ### gate initialization
+
 ```python
 # mhc.py - paper init γ=0.01 (near identity)
 self.gate = nn.Parameter(torch.tensor([-4.6]))  # sigmoid(-4.6) ≈ 0.01
 ```
 
 ### doubly-stochastic constraint
+
 ```python
 # H_res = (1-g)*I + g*H_res_sinkhorn
 # where H_res_sinkhorn has rows AND cols summing to 1
@@ -153,14 +181,17 @@ pytest tests/
 
 ## implementation comparison: nanochat vs reference
 
-reference repo: lucidrains/hyper-connections (mHC-manifold-constrained-hyper-connections/)
+reference repo: tokenbender/mHC-manifold-constrained-hyper-connections (git submodule at reference/)
 
 ### papers referenced
+
 - original hyper-connections: arxiv 2409.19606
 - mHC (manifold-constrained): arxiv 2512.24880
 
 ### sinkhorn implementation
+
 both implementations produce doubly-stochastic matrices correctly:
+
 - reference (hyper_connections.py): uses `log_marginal = -log(n)` then `* n` scaling
 - reference (hyper_connections_mhc.py): uses `log_marginal = zeros` (matches ours)
 - ours (mhc.py): uses `log_marginal = zeros`
@@ -169,55 +200,62 @@ no change needed - our sinkhorn matches the mHC-specific reference.
 
 ### initialization scale
 
-| aspect | reference | static (current) | dynamic | paper spec |
-|--------|-----------|------------------|---------|------------|
-| H_res off-diagonal | -8.0 | -8.0 | -4.0 | not specified |
-| H_res diagonal | 0.0 | 0.0 | 0.0 | - |
-| tau | 0.05 | 0.05 | 0.2 | - |
-| gate init | none | 0.01 | 0.01 | 0.01 |
-| sinkhorn iters | 10-20 | 20 | 50 | 20 |
+| aspect             | reference | static (current) | dynamic | paper spec    |
+| ------------------ | --------- | ---------------- | ------- | ------------- |
+| H_res off-diagonal | -8.0      | -8.0             | -4.0    | not specified |
+| H_res diagonal     | 0.0       | 0.0              | 0.0     | -             |
+| tau                | 0.05      | 0.05             | 0.2     | -             |
+| gate init          | none      | 0.01             | 0.01    | 0.01          |
+| sinkhorn iters     | 10-20     | 20               | 50      | 20            |
 
 static mode now matches reference exactly for stability.
 
 ### architecture integration
 
 reference pattern (branch at init):
+
 ```python
 self.hc_attn = init_hc(branch=self.attn_branch, ...)
 x = self.hc_attn(x)  # branch called internally
 ```
 
 our pattern (branch at forward):
+
 ```python
 self.mhc_attn = DynamicMHC(...)
 x = self.mhc_attn(x, lambda z: self.attn(norm(z), cos_sin, kv_cache))
 ```
 
 our approach is better for:
+
 - closures capture external state (cos_sin, kv_cache) naturally
 - no wrapper classes needed
 - explicit data flow is more debuggable
 - per-token dynamic matrices require runtime branch binding anyway
 
 ### multi-output branches
+
 added tree_flatten/tree_unflatten support (matching reference):
+
 ```python
 branch_out = branch_fn(x_pre)
 (y, *rest), tree_spec = tree_flatten(branch_out)
 # apply depth connection to y only
 return tree_unflatten((output, *rest), tree_spec)
 ```
+
 enables branches returning (output, attention_weights) tuples.
 
 ### stream expansion/reduction
 
-| aspect | reference | ours |
-|--------|-----------|------|
-| tensor layout | `(b*s, t, d)` streams in batch | `(b, t, n*d)` streams in features |
-| stream embed init | zeros | orthogonal * 0.02 |
-| reduction | einops sum | view + sum |
+| aspect            | reference                      | ours                              |
+| ----------------- | ------------------------------ | --------------------------------- |
+| tensor layout     | `(b*s, t, d)` streams in batch | `(b, t, n*d)` streams in features |
+| stream embed init | zeros                          | orthogonal \* 0.02                |
+| reduction         | einops sum                     | view + sum                        |
 
 orthogonal init benefits (NeurIPS 2024 research):
+
 - prevents dimensional collapse
 - streams start maximally different (zero correlation)
 - faster specialization during training
@@ -225,24 +263,27 @@ orthogonal init benefits (NeurIPS 2024 research):
 
 ### static vs dynamic matrices
 
-| aspect | reference | static (recommended) | dynamic (experimental) |
-|--------|-----------|---------------------|------------------------|
-| H_res | static per layer `[n, n]` | static per layer `[n, n]` | dynamic per token `[B, T, n, n]` |
-| H_pre | static per layer `[n]` | static per layer `[n]` | dynamic per token `[B, T, n]` |
-| H_post | static per layer `[n]` | static per layer `[n]` | dynamic per token `[B, T, n]` |
+| aspect | reference                 | static (recommended)      | dynamic (experimental)           |
+| ------ | ------------------------- | ------------------------- | -------------------------------- |
+| H_res  | static per layer `[n, n]` | static per layer `[n, n]` | dynamic per token `[B, T, n, n]` |
+| H_pre  | static per layer `[n]`    | static per layer `[n]`    | dynamic per token `[B, T, n]`    |
+| H_post | static per layer `[n]`    | static per layer `[n]`    | dynamic per token `[B, T, n]`    |
 
 **static (mhc_static=True):**
+
 - matches reference implementation
 - stable training at all depths
 - stream differentiation via H_pre/H_post
 - for RL: make gate input-dependent later
 
 **dynamic (mhc_static=False):**
+
 - per-token routing via projections
 - unstable at depth > 12 (tradeoff between sinkhorn convergence and stream differentiation)
 - no one has successfully combined per-token routing with doubly-stochastic constraints
 
 ### features we have that reference doesn't
+
 - learnable gate with paper init (g=0.01)
 - per-token dynamic matrices
 - gate noise for RL robustness
@@ -250,12 +291,14 @@ orthogonal init benefits (NeurIPS 2024 research):
 - diagnostics collection
 
 ### features reference has that we don't (not needed)
+
 - num_fracs: frac-connections paper support
 - num_input_views: multiple views for branch input
 - orthostochastic_project: newton-schulz alternative to sinkhorn
 - AttentionPoolReduceStream: learned weighted reduction
 
 ### design decisions summary
+
 1. sinkhorn: matches reference, no change needed
 2. static mode (default): matches reference -8.0 init for stability
 3. architecture: callback pattern (branch_fn) is cleaner for our use case
@@ -267,6 +310,7 @@ orthogonal init benefits (NeurIPS 2024 research):
 ### static mHC results (validated)
 
 depth=20, static mode, 5000 steps:
+
 - stream_similarity: 0.24 (good differentiation)
 - sinkhorn errors: 0 (perfect convergence)
 - val/bpb: 1.086 (good model quality)
@@ -276,6 +320,7 @@ depth=20, static mode, 5000 steps:
 ### dynamic mHC findings (experimental, unstable)
 
 dynamic per-token H_res has fundamental tradeoffs at depth > 12:
+
 - low tau (0.05): sinkhorn struggles, but streams differentiate
 - high tau (0.2): sinkhorn converges, but streams collapse
 - no configuration found that achieves both
