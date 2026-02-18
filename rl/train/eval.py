@@ -17,12 +17,12 @@ import numpy as np
 import torch
 
 # add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "nanochat-mHC"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "nanochat-mHC"))
 
-from controller.model_loader import load_frozen_mhc_model
-from controller.policy import GatePolicy
-from envs.gsm8k_env import GSM8KEnv
+from rl.controller.model_loader import load_frozen_mhc_model
+from rl.controller.policy import GatePolicy
+from rl.envs.gsm8k_env import GSM8KEnv
 
 
 def verify_gate_affects_output(model, tokenizer, prompt: str = "What is 2 + 2?"):
