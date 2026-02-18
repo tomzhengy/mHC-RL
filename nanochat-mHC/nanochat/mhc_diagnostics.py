@@ -47,10 +47,16 @@ def collect_mhc_metrics(model):
     for i, block in enumerate(model.transformer.h):
         if hasattr(block, 'mhc_attn') and block.mhc_attn is not None:
             mhc = block.mhc_attn
-            # handle both static (H_res_logits) and dynamic (H_res_base) attribute names
-            h_res_param = getattr(mhc, 'H_res_base', None) or getattr(mhc, 'H_res_logits', None)
-            h_pre_param = getattr(mhc, 'H_pre_base', None) or getattr(mhc, 'H_pre_logits', None)
-            h_post_param = getattr(mhc, 'H_post_base', None) or getattr(mhc, 'H_post_logits', None)
+            # handle both static (H_*_logits) and dynamic (H_*_base) attribute names
+            h_res_param = getattr(mhc, "H_res_base", None)
+            if h_res_param is None:
+                h_res_param = getattr(mhc, "H_res_logits", None)
+            h_pre_param = getattr(mhc, "H_pre_base", None)
+            if h_pre_param is None:
+                h_pre_param = getattr(mhc, "H_pre_logits", None)
+            h_post_param = getattr(mhc, "H_post_base", None)
+            if h_post_param is None:
+                h_post_param = getattr(mhc, "H_post_logits", None)
             if h_res_param is not None:
                 h_res_norms.append(h_res_param.data.norm().item())
                 if h_res_param.grad is not None:
