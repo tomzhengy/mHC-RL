@@ -78,6 +78,13 @@ orig_model = model # original, uncompiled model
 # model = torch.compile(model, dynamic=True) # doesn't work super well because of variable lengths of inputs
 engine = Engine(model, tokenizer) # will be used for inline model evaluation only
 
+# mHC detection
+mhc_enabled = bool(getattr(getattr(model, "config", None), "mhc_enabled", False))
+if mhc_enabled:
+    from nanochat.mhc_diagnostics import enable_mhc_diagnostics, collect_mhc_metrics
+    mode = "static" if model.config.mhc_static else "dynamic"
+    print0(f"mHC enabled ({mode}): {model.config.mhc_num_streams} streams")
+
 # -----------------------------------------------------------------------------
 # Task data mixture we'll train on
 identity_conversations_filepath = os.path.join(get_base_dir(), "identity_conversations.jsonl")
@@ -210,6 +217,12 @@ for step in range(num_iterations):
     if last_step:
         break
 
+    # mHC exploration schedule and diagnostics
+    if mhc_enabled:
+        progress = step / num_iterations
+        orig_model.update_mhc_exploration(progress, warmup_frac=0.1)
+        enable_mhc_diagnostics(orig_model)
+
     # evaluate the gradient
     num_tokens = torch.tensor(0, device=device) # the number of "active" tokens of supervision seen
     for micro_step in range(grad_accum_steps):
@@ -232,18 +245,21 @@ for step in range(num_iterations):
     # step the optimizers
     for opt in optimizers:
         opt.step()
+
+    # collect mHC metrics before zero_grad (need gradients for grad norm metrics)
+    if mhc_enabled:
+        mhc_metrics = collect_mhc_metrics(orig_model)
+
     model.zero_grad(set_to_none=True)
 
     # logging
     train_loss_item = train_loss.item()
     num_tokens_item = num_tokens.item()
     print0(f"Step {step:05d}/{num_iterations:05d} | Training loss: {train_loss_item:.6f}| lrm: {lrm:.6f}| num_tokens: {num_tokens_item:,}")
-    wandb_run.log({
-        "step": step,
-        "lrm": lrm,
-        "train_loss": train_loss_item,
-        "num_tokens": num_tokens_item,
-    })
+    log_data = {"step": step, "lrm": lrm, "train_loss": train_loss_item, "num_tokens": num_tokens_item}
+    if mhc_enabled:
+        log_data.update(mhc_metrics)
+    wandb_run.log(log_data)
     step += 1
 
 # Save the model at the end of the run
