@@ -34,7 +34,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["routing", "controller", "envs", "train", "configs", "scripts"]
+packages = ["rl"]
 
 [dependency-groups]
 dev = [
