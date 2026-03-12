@@ -71,6 +71,11 @@ pretrain_batch_size = meta.get("device_batch_size", None)
 if pretrain_batch_size is not None and device_batch_size > pretrain_batch_size:
     print0(f"FOOTGUN WARNING: base model training used device_batch_size {pretrain_batch_size}, did you pass in a good --device_batch_size to this script?")
 orig_model = model
+mhc_enabled = bool(getattr(getattr(model, "config", None), "mhc_enabled", False))
+if mhc_enabled:
+    from nanochat.mhc_diagnostics import enable_mhc_diagnostics, collect_mhc_metrics
+    mode = "static" if model.config.mhc_static else "dynamic"
+    print0(f"mHC enabled ({mode}): {model.config.mhc_num_streams} streams")
 # model = torch.compile(model, dynamic=False)  # disabled for mHC compatibility
 depth = model.config.n_layer
 num_flops_per_token = model.estimate_flops()
@@ -230,6 +235,10 @@ while True:
     # evaluate the gradient
     synchronize()
     t0 = time.time()
+    # mHC exploration schedule and diagnostics
+    if mhc_enabled:
+        orig_model.update_mhc_exploration(progress, warmup_frac=0.1)
+        enable_mhc_diagnostics(orig_model)
     for micro_step in range(grad_accum_steps):
         with autocast_ctx:
             loss = model(x, y)
@@ -248,6 +257,8 @@ while True:
         group["momentum"] = muon_momentum
     for opt in optimizers:
         opt.step()
+    if mhc_enabled:
+        mhc_metrics = collect_mhc_metrics(orig_model)
     model.zero_grad(set_to_none=True)
     synchronize()
     t1 = time.time()
@@ -269,7 +280,7 @@ while True:
         total_training_time += dt # only count the time after the first 10 steps
     print0(f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | total time: {total_training_time/60:.2f}m")
     if step % 10 == 0:
-        wandb_run.log({
+        log_data = {
             "step": step,
             "total_training_flops": flops_so_far,
             "total_training_time": total_training_time,
@@ -278,7 +289,10 @@ while True:
             "train/dt": dt,
             "train/tok_per_sec": tok_per_sec,
             "train/mfu": mfu,
-        })
+        }
+        if mhc_enabled:
+            log_data.update(mhc_metrics)
+        wandb_run.log(log_data)
 
 # print a few more stats
 print0(f"Peak memory usage: {get_max_memory() / 1024 / 1024:.2f}MiB")
