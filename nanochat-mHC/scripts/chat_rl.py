@@ -69,6 +69,13 @@ wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-rl
 model, tokenizer, meta = load_model(source, device, phase="eval", model_tag=model_tag, step=step)
 engine = Engine(model, tokenizer) # for sampling rollouts
 
+# mHC detection
+mhc_enabled = bool(getattr(getattr(model, "config", None), "mhc_enabled", False))
+if mhc_enabled:
+    from nanochat.mhc_diagnostics import enable_mhc_diagnostics, collect_mhc_metrics
+    mode = "static" if model.config.mhc_static else "dynamic"
+    print0(f"mHC enabled ({mode}): {model.config.mhc_num_streams} streams")
+
 # -----------------------------------------------------------------------------
 # Rollout / sampling generator loop that yields batches of examples for training
 
@@ -240,6 +247,12 @@ for step in range(num_steps):
             **log_passk,
         })
 
+    # mHC exploration schedule and diagnostics
+    if mhc_enabled:
+        progress = step / num_steps
+        model.update_mhc_exploration(progress, warmup_frac=0.1)
+        enable_mhc_diagnostics(model)
+
     # Forward/Backward on rollouts over multiple examples in the dataset
     rewards_list = []
     sequence_lengths = []
@@ -299,11 +312,16 @@ for step in range(num_steps):
             group["lr"] = group["initial_lr"] * lrm
     for opt in optimizers: # then step the optimizers
         opt.step()
+    if mhc_enabled:
+        mhc_metrics = collect_mhc_metrics(model)
     model.zero_grad(set_to_none=True)
-    wandb_run.log({
+    log_data = {
         "step": step,
         "lrm": lrm,
-    })
+    }
+    if mhc_enabled:
+        log_data.update(mhc_metrics)
+    wandb_run.log(log_data)
 
     # Master process saves the model once in a while. Skip first step. Save last step.
     if master_process and ((step > 0 and step % save_every == 0) or step == num_steps - 1):
