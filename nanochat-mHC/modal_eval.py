@@ -182,8 +182,9 @@ def main(
     if hf_ckpt_repo:
         print(f"  checkpoint: {hf_ckpt_repo}")
 
-    # override GPU if requested (requires creating a new function handle)
-    out = run_eval.remote(
+    # override GPU at runtime via with_options
+    fn = run_eval.with_options(gpu=gpu) if gpu != "A10G" else run_eval
+    out = fn.remote(
         models=model_list,
         evals=eval_list,
         hf_ckpt_repo=hf_ckpt_repo or None,
