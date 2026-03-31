@@ -1,0 +1,27 @@
+{
+  "models": [
+    {
+      "id": "gpt2-hf",
+      "name": "GPT-2 (HuggingFace)",
+      "spec": "hf:openai-community/gpt2",
+      "description": "baseline openai gpt2",
+      "hf_ckpt_repo": null,
+      "ckpt_model_tag": null,
+      "ckpt_source": "base"
+    },
+    {
+      "id": "d20-mhc-static",
+      "name": "d20 static mHC",
+      "spec": "base:nanochat-mhc-d20-static",
+      "description": "depth 20, static mHC, 4 streams",
+      "hf_ckpt_repo": "tomzhengy/nanochat-mhc-d20-static",
+      "ckpt_model_tag": "nanochat-mhc-d20-static",
+      "ckpt_source": "base"
+    }
+  ],
+  "defaults": {
+    "gpu": "A10G",
+    "max_per_task": -1,
+    "max_problems": -1
+  }
+}

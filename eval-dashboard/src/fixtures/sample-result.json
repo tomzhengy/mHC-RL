@@ -1,0 +1,126 @@
+{
+  "timestamp": "20260330_143022",
+  "gpu_info": {
+    "gpu_name": "NVIDIA A10G",
+    "gpu_vram_gb": 24.0
+  },
+  "eval_config": {
+    "evals": ["core", "chat"],
+    "max_per_task": -1,
+    "max_problems": null
+  },
+  "models": [
+    {
+      "model_spec": "base:d20",
+      "model_name": "base:d20 (step 15000)",
+      "param_count": 561000000,
+      "config": {
+        "n_layer": 20,
+        "n_embd": 768,
+        "n_head": 12,
+        "mhc_enabled": false
+      },
+      "core": {
+        "results": {
+          "arc_easy": 0.4523,
+          "arc_challenge": 0.2341,
+          "hellaswag": 0.3456,
+          "winogrande": 0.5234,
+          "piqa": 0.6123,
+          "boolq": 0.5567,
+          "copa": 0.6800,
+          "rte": 0.5100
+        },
+        "centered_results": {
+          "arc_easy": 0.2697,
+          "arc_challenge": 0.0455,
+          "hellaswag": 0.1275,
+          "winogrande": 0.0468,
+          "piqa": 0.2246,
+          "boolq": 0.1134,
+          "copa": 0.3600,
+          "rte": 0.0200
+        },
+        "core_metric": 0.1509,
+        "wall_time": 142.5
+      },
+      "chat": {
+        "results": {
+          "ARC-Easy": 0.3561,
+          "ARC-Challenge": 0.2875,
+          "MMLU": 0.3111,
+          "GSM8K": 0.0250,
+          "HumanEval": 0.0671,
+          "SpellingBee": 0.1200
+        },
+        "centered_results": {
+          "ARC-Easy": 0.1415,
+          "ARC-Challenge": 0.0500,
+          "MMLU": 0.0815,
+          "GSM8K": 0.0250,
+          "HumanEval": 0.0671,
+          "SpellingBee": 0.1200
+        },
+        "chatcore_metric": 0.0809,
+        "wall_time": 1245.3
+      }
+    },
+    {
+      "model_spec": "base:d20-mhc",
+      "model_name": "base:d20-mhc (step 15000)",
+      "param_count": 589000000,
+      "config": {
+        "n_layer": 20,
+        "n_embd": 768,
+        "n_head": 12,
+        "mhc_enabled": true,
+        "mhc_static": true,
+        "mhc_num_streams": 4
+      },
+      "core": {
+        "results": {
+          "arc_easy": 0.4612,
+          "arc_challenge": 0.2456,
+          "hellaswag": 0.3567,
+          "winogrande": 0.5312,
+          "piqa": 0.6245,
+          "boolq": 0.5689,
+          "copa": 0.7000,
+          "rte": 0.5300
+        },
+        "centered_results": {
+          "arc_easy": 0.2816,
+          "arc_challenge": 0.0608,
+          "hellaswag": 0.1423,
+          "winogrande": 0.0624,
+          "piqa": 0.2494,
+          "boolq": 0.1378,
+          "copa": 0.4000,
+          "rte": 0.0600
+        },
+        "core_metric": 0.1743,
+        "wall_time": 168.2
+      },
+      "chat": {
+        "results": {
+          "ARC-Easy": 0.3876,
+          "ARC-Challenge": 0.2950,
+          "MMLU": 0.3200,
+          "GSM8K": 0.0350,
+          "HumanEval": 0.0732,
+          "SpellingBee": 0.1450
+        },
+        "centered_results": {
+          "ARC-Easy": 0.1835,
+          "ARC-Challenge": 0.0600,
+          "MMLU": 0.0933,
+          "GSM8K": 0.0350,
+          "HumanEval": 0.0732,
+          "SpellingBee": 0.1450
+        },
+        "chatcore_metric": 0.0983,
+        "wall_time": 1389.1
+      }
+    }
+  ]
+}
