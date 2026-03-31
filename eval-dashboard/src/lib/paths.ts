@@ -1,7 +1,7 @@
 import path from "path";
 
-// resolve paths relative to the eval-dashboard directory
-const EVAL_DASHBOARD_DIR = path.resolve(__dirname, "../..");
+// process.cwd() returns the next.js project root (eval-dashboard/)
+const EVAL_DASHBOARD_DIR = process.cwd();
 
 export const NANOCHAT_DIR = path.resolve(EVAL_DASHBOARD_DIR, "../nanochat-mHC");
 export const MODAL_EVAL_PATH = path.join(NANOCHAT_DIR, "modal_eval.py");
