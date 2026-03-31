@@ -12,7 +12,7 @@ usage:
     python -m scripts.eval_compare --models hf:openai-community/gpt2 --evals core
 
     # multi-GPU
-    torchrun --nproc_per_node=8 -m scripts.eval_compare -- --models base:d20 base:d20-mhc --evals core
+    torchrun --nproc_per_node=8 -m scripts.eval_compare --models base:d20 base:d20-mhc --evals core
 
     # smoke test
     python -m scripts.eval_compare --models base:d20 --evals core --max-per-task 5
@@ -22,6 +22,7 @@ usage:
 """
 
 import os
+import sys
 import gc
 import json
 import time
@@ -140,15 +141,16 @@ def run_core_eval(model, tokenizer, device, max_per_task):
 def run_all_chat_evals(model, tokenizer, device, is_hf, max_problems, batch_size=8):
     """run all ChatCORE tasks with timing. returns (results_dict, wall_time_seconds).
 
-    generative tasks (GSM8K, HumanEval, SpellingBee) require Engine and only work
-    with nanochat models, not HF wrappers. they are skipped for HF models.
+    all chat evals require render_for_completion() which only exists on the nanochat
+    tokenizer (RustBPETokenizer), not the HuggingFace tokenizer wrapper. HF models
+    are skipped entirely.
     """
-    from nanochat.engine import Engine
+    if is_hf:
+        print0("  skipping all chat evals (HF tokenizer lacks render_for_completion)")
+        return {"results": {}, "centered_results": {}, "chatcore_metric": None}, 0.0
 
-    generative_tasks = {"GSM8K", "HumanEval", "SpellingBee"}
-    engine = None
-    if not is_hf:
-        engine = Engine(model, tokenizer)
+    from nanochat.engine import Engine
+    engine = Engine(model, tokenizer)
 
     device_type = "cuda" if torch.cuda.is_available() else "cpu"
     autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16) if device_type == "cuda" else nullcontext()
@@ -156,10 +158,6 @@ def run_all_chat_evals(model, tokenizer, device, is_hf, max_problems, batch_size
     results = {}
     t0 = time.time()
     for task_name in CHAT_TASKS:
-        if task_name in generative_tasks and is_hf:
-            print0(f"  skipping {task_name} (generative task, requires nanochat Engine)")
-            continue
-
         print0(f"  evaluating {task_name}...")
         with autocast_ctx:
             acc = run_chat_eval(
@@ -221,6 +219,10 @@ def print_summary(all_results):
 
 
 def main():
+    # strip torchrun's -- separator if present (same as base_train.py)
+    if "--" in sys.argv:
+        sys.argv.remove("--")
+
     parser = argparse.ArgumentParser(description="compare evals across nanochat models")
     parser.add_argument("--models", nargs="+", required=True,
                         help="model specs: base:d20, hf:openai-community/gpt2, etc.")
@@ -234,6 +236,8 @@ def main():
                         help="batch size for categorical chat evals")
     parser.add_argument("--dashboard", action="store_true",
                         help="generate HTML dashboard after eval")
+    parser.add_argument("--no-open-dashboard", action="store_true",
+                        help="don't auto-open dashboard in browser (useful for cloud/headless)")
     parser.add_argument("--output", type=str, default=None,
                         help="custom output path for results JSON")
     args = parser.parse_args()
@@ -334,7 +338,7 @@ def main():
             print0("\ngenerating dashboard...")
             from scripts.eval_dashboard import generate_dashboard
             html_path = output_path.replace(".json", ".html")
-            generate_dashboard(output_path, html_path)
+            generate_dashboard(output_path, html_path, open_browser=not args.no_open_dashboard)
             print0(f"dashboard written to {html_path}")
 
     compute_cleanup()
