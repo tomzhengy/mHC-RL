@@ -2,12 +2,16 @@
 modal app for serverless GPU evaluation of nanochat models.
 
 usage:
-    # eval HF model
+    # eval HF model (CORE only, chat evals not supported for HF models)
     modal run modal_eval.py --models "hf:openai-community/gpt2" --evals "core"
 
-    # eval checkpoint from HF repo
-    modal run modal_eval.py --models "base:d20-mhc" --evals "core,chat" \
+    # eval checkpoint from HF repo (tag defaults to repo basename)
+    modal run modal_eval.py --models "base:nanochat-mhc-d20-static" --evals "core,chat" \
         --hf-ckpt-repo "tomzhengy/nanochat-mhc-d20-static"
+
+    # eval with explicit tag override
+    modal run modal_eval.py --models "base:d20-mhc" --evals "core" \
+        --hf-ckpt-repo "tomzhengy/nanochat-mhc-d20-static" --ckpt-model-tag "d20-mhc"
 
     # override GPU
     modal run modal_eval.py --models "base:d20" --evals "core" --gpu a100
@@ -97,6 +101,7 @@ def run_eval(models: list[str], evals: list[str], hf_ckpt_repo: str = None,
 
         from huggingface_hub import snapshot_download
         snapshot_download(hf_ckpt_repo, local_dir=ckpt_dir)
+        print(f"checkpoint downloaded as {ckpt_source}:{tag}")
 
         # rename to checkpoint manager format if needed
         model_pt = os.path.join(ckpt_dir, "model.pt")
@@ -114,6 +119,7 @@ def run_eval(models: list[str], evals: list[str], hf_ckpt_repo: str = None,
         "--models", *models,
         "--evals", *evals,
         "--dashboard",
+        "--no-open-dashboard",
         "--output", "/tmp/eval_results.json",
     ]
     if max_per_task != -1:
@@ -180,7 +186,18 @@ def main(
     print(f"  models: {model_list}")
     print(f"  evals: {eval_list}")
     if hf_ckpt_repo:
-        print(f"  checkpoint: {hf_ckpt_repo}")
+        resolved_tag = ckpt_model_tag or os.path.basename(hf_ckpt_repo)
+        print(f"  checkpoint: {hf_ckpt_repo} -> {ckpt_source}:{resolved_tag}")
+        # warn if no model spec references the downloaded checkpoint tag
+        same_source_specs = [s for s in model_list if s.startswith(f"{ckpt_source}:")]
+        any_match = any(
+            s.split(":", maxsplit=2)[1] == resolved_tag
+            for s in same_source_specs if ":" in s
+        )
+        if same_source_specs and not any_match:
+            print(f"  warning: downloaded checkpoint as '{ckpt_source}:{resolved_tag}' "
+                  f"but no model spec references that tag. "
+                  f"did you mean to include '{ckpt_source}:{resolved_tag}'?")
 
     # override GPU at runtime via with_options
     fn = run_eval.with_options(gpu=gpu) if gpu != "A10G" else run_eval
