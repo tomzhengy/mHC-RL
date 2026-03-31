@@ -111,6 +111,10 @@ snapshot_download('$HF_CKPT_REPO', local_dir='$CKPT_DIR')
     mkdir -p ~/.cache/nanochat
     rm -rf ~/.cache/nanochat/$CKPT_SUBDIR 2>/dev/null || true
     ln -s $NANOCHAT_BASE_DIR/$CKPT_SUBDIR ~/.cache/nanochat/$CKPT_SUBDIR
+
+    echo ""
+    echo "Checkpoint ready. Use with:"
+    echo "  python -m scripts.eval_compare --models ${CKPT_SOURCE}:${CKPT_MODEL_TAG} --evals core --dashboard"
 fi
 
 echo ""
@@ -118,4 +122,4 @@ echo "=== Eval Setup Complete ==="
 echo ""
 echo "Run evaluation:"
 echo "  source .venv/bin/activate"
-echo "  python -m scripts.eval_compare --models base:d20 --evals core --dashboard"
+echo "  python -m scripts.eval_compare --models <source>:<tag> --evals core --dashboard"
